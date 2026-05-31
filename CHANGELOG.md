@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Legacy service-name acceptance: the server instructions and application-fleet tool descriptions
+  now teach the model that "AppStream" / "AppStream 2.0" means Amazon WorkSpaces Applications (and
+  "WorkSpaces Web" means Secure Browser), so queries using former names route correctly while
+  output keeps the current name. Added a `LEGACY_NAME_ALIASES` map and guardrail tests.
 - `get_workspace_performance` (Tier 0): native per-desktop CPU/memory/GPU/FPS/disk/latency/uptime
   metrics from the `AWS/WorkSpaces` namespace (latest/average/peak), no CloudWatch agent required.
 - `recommend_bundle_rightsizing` (Tier 0): now implemented on the native CPU/memory metrics —

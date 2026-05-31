@@ -39,6 +39,19 @@ PRODUCT_WORKSPACES_POOLS = "Amazon WorkSpaces Pools"
 PRODUCT_WORKSPACES_APPLICATIONS = "Amazon WorkSpaces Applications"
 PRODUCT_SECURE_BROWSER = "Amazon WorkSpaces Secure Browser"
 
+# Legacy / former product names mapped to their current official name. Accept these as INPUT
+# (users will keep saying them) but always emit the current name in output. This is surfaced to the
+# MCP client model via the server instructions and tool descriptions so a query about, say,
+# "AppStream fleets" routes to the WorkSpaces Applications tools.
+LEGACY_NAME_ALIASES = {
+    "appstream": PRODUCT_WORKSPACES_APPLICATIONS,
+    "appstream 2.0": PRODUCT_WORKSPACES_APPLICATIONS,
+    "amazon appstream": PRODUCT_WORKSPACES_APPLICATIONS,
+    "amazon appstream 2.0": PRODUCT_WORKSPACES_APPLICATIONS,
+    "workspaces web": PRODUCT_SECURE_BROWSER,
+    "amazon workspaces web": PRODUCT_SECURE_BROWSER,
+}
+
 # Default blast-radius cap for any (future, Phase 2) bulk mutation.
 DEFAULT_MAX_BULK_TARGETS = 25
 
@@ -72,7 +85,15 @@ SERVER_INSTRUCTIONS = """\
 Administrator-focused MCP server for the Amazon WorkSpaces End User Computing portfolio:
 WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, WorkSpaces Secure Browser, and
 WorkSpaces Core. Tools are read-only by default and synthesize cross-service results for
-inventory, troubleshooting, and cost/utilization optimization. Always refer to services by their
-current official names. Write/lifecycle operations are not enabled unless the server was launched
-with --enable-writes and the matching IAM permissions are present.
+inventory, troubleshooting, and cost/utilization optimization. Write/lifecycle operations are not
+enabled unless the server was launched with --enable-writes and the matching IAM permissions are
+present.
+
+Legacy/former service names are fully supported as input — accept them and treat them as the
+current service, but ALWAYS use the current official name in your response:
+- "AppStream", "AppStream 2.0", "Amazon AppStream 2.0"  ->  Amazon WorkSpaces Applications
+- "WorkSpaces Web"                                       ->  Amazon WorkSpaces Secure Browser
+Amazon WorkSpaces Applications IS the rebranded AppStream 2.0 (same service and API), so a request
+about "AppStream fleets" or "AppStream stacks" is about WorkSpaces Applications and is handled by
+the application-fleet tools — do not say AppStream is unsupported.
 """
