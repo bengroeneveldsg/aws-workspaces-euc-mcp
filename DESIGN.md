@@ -12,9 +12,13 @@
    optimization, and EUC-aware guardrails — not 1:1 API wrappers.
 3. **Security-first, least privilege.** Read-only by default. Writes are opt-in, separately
    permissioned, dry-run-able, confirmation-gated, and blast-radius-limited.
-4. **Official AWS naming everywhere a human reads.** Legacy identifiers only where the SDK/API
+4. **No embedded tenant data — ever.** This is redistributable software run by many parties.
+   Credentials, account IDs, ARNs, profile names, regions, and any other consumer-specific data
+   are supplied **only at runtime** (AWS credential chain, CLI flags, env vars) and are **never**
+   hardcoded, persisted to disk, or committed. The codebase ships with zero account-specific data.
+5. **Official AWS naming everywhere a human reads.** Legacy identifiers only where the SDK/API
    literally requires them (and labelled as such).
-5. **Build on awslabs conventions** so we match patterns customers already trust.
+6. **Build on awslabs conventions** so we match patterns customers already trust.
 
 ## 2. Services in scope (official naming → API identifier)
 
@@ -146,7 +150,13 @@ human operator** (the pattern the AWS MCP Server uses).
 
 - Read-only default; writes require an explicit launch flag *and* the matching IAM tier.
 - Every mutation: `dry_run` plan → explicit confirmation → blast-radius cap.
-- No credential handling in-process; rely on the AWS credential chain / assumed roles.
+- **No credentials or tenant data in the server.** Credentials are resolved solely from the
+  standard AWS chain (`AWS_PROFILE` / `AWS_REGION` / SSO / assumed role) at runtime. The server
+  stores nothing to disk — boto3 clients are cached in memory only; there is no config/state file,
+  no credential cache, no account ID, ARN, or profile name baked into source.
+- **Redistributable-safe repo:** nothing account-specific is ever committed. `.gitignore` blocks
+  `.aws/`, `.env`, `*.pem`; pre-commit runs `detect-private-key`; CI greps for hardcoded
+  account IDs/ARNs/secrets. Examples in docs use placeholders only.
 - Full auditability via CloudTrail (every underlying API call is attributable).
 - Optional `audit_security_posture` self-check against EUC best practices.
 - Input validation with Pydantic; bandit + AST checks in CI.

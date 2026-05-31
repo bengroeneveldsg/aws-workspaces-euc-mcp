@@ -37,8 +37,21 @@ Phase 1 adds the full diagnostics and cost tools; Phase 2+ add guarded lifecycle
 
 - Python 3.11+
 - AWS credentials available via the standard chain (`AWS_PROFILE`, `AWS_REGION`, SSO, or an
-  assumed role). **No credentials are stored by the server.**
+  assumed role).
 - An IAM identity with the **Tier 0** policy in [`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json).
+
+## Credentials & data handling
+
+This server is built to be redistributed and run by many parties, so it **never stores or embeds
+any user-specific data**:
+
+- **Credentials** come only from the standard AWS chain at runtime — they are never read into,
+  logged by, or persisted by the server.
+- **No state on disk.** There is no config/cache/state file; boto3 clients live in memory only.
+- **No account-specific data in the code** — no account IDs, ARNs, profile names, or regions are
+  hardcoded. Provide them at runtime via flags/env. Documentation uses placeholders only.
+
+Bring your own credentials and region; the server holds nothing.
 
 ## Install
 

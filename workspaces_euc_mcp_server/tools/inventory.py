@@ -24,21 +24,25 @@ from ..models import EucInventorySummary, InventoryError, ServiceInventory
 def _paginate(
     operation: Callable[..., dict[str, Any]],
     list_key: str,
-    token_request: str = "NextToken",
-    token_response: str = "NextToken",
+    pagination_in: str = "NextToken",
+    pagination_out: str = "NextToken",
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """Drain a paginated AWS list/describe operation into a flat list."""
+    """Drain a paginated AWS list/describe operation into a flat list.
+
+    ``pagination_in`` / ``pagination_out`` are the request and response field names AWS uses for
+    the continuation marker (e.g. ``NextToken``, or ``nextToken`` for camelCase services).
+    """
     items: list[dict[str, Any]] = []
-    token: str | None = None
+    marker: str | None = None
     while True:
         params = dict(kwargs)
-        if token:
-            params[token_request] = token
+        if marker:
+            params[pagination_in] = marker
         response = operation(**params)
         items.extend(response.get(list_key, []))
-        token = response.get(token_response)
-        if not token:
+        marker = response.get(pagination_out)
+        if not marker:
             return items
 
 
@@ -129,8 +133,8 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
         lambda: _paginate(
             secure_browser.list_portals,
             "portals",
-            token_request="nextToken",
-            token_response="nextToken",
+            pagination_in="nextToken",
+            pagination_out="nextToken",
         ),
     )
     if portals is not None:
