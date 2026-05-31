@@ -5,11 +5,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- `generate_inventory_report` Pools capacity was always `null` — it read the wrong key (`Capacity`
+  instead of `CapacityStatus`). Now populated with the real session capacity.
+
 ### Added
-- WorkSpaces Personal **user mapping**: `generate_inventory_report` now surfaces each desktop's
-  assigned `UserName` (as the record label), `ComputerName`, and `IpAddress` — already returned by
-  `DescribeWorkspaces` but previously dropped. `diagnose_workspace_connectivity` now includes
-  `user_name`/`computer_name` in its signals.
+- WorkSpaces Personal **user mapping** + many previously-dropped fields in `generate_inventory_report`
+  (found by auditing the raw API responses): each desktop now exposes assigned `UserName` (as the
+  record label), `ComputerName`, `IpAddress`, plus `OperatingSystemName`, `Protocols`, root/user
+  volume sizes, AutoStop timeout, root/user encryption flags, and subnet. `diagnose_workspace_connectivity`
+  signals now include `user_name`/`computer_name`. Pools also expose bundle/directory/running-mode/
+  description; Applications fleets expose image name and session/idle/disconnect timeouts; stacks
+  expose `UserSettings` (clipboard/print/file-transfer controls) and storage connectors; Secure
+  Browser portals expose authentication type, max concurrent sessions, instance and renderer type.
 - `get_workspace_connection_history` and `get_pool_session_history` (Tier 0): time-series usage
   history for WorkSpaces Personal desktops (UserConnected + connection attempts/failures) and
   WorkSpaces Pools (Active/Actual/Available/Desired/Pending user-session capacity +
