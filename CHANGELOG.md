@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Phase 3 destructive tools (Tier 3), registered only with both `--enable-writes` and
+  `--enable-destructive`: `terminate_workspaces`, `rebuild_workspaces`, and `restore_workspace`.
+  On top of dry-run + blast-radius cap, each execution requires an exact typed acknowledgement
+  phrase (`"TERMINATE"` / `"REBUILD"` / `"RESTORE"`). Added the Tier 3 IAM policy
+  (`iam/tier3-destructive.json`) and an optional `acknowledgement_required` field on `WriteOutcome`.
 - Phase 2 guarded lifecycle tools for WorkSpaces Pools and Applications (writes, Tier 2):
   `start_workspaces_pool`, `stop_workspaces_pool`, `update_workspaces_pool_capacity`,
   `start_application_fleet`, `stop_application_fleet`, and `update_application_fleet_capacity`.
