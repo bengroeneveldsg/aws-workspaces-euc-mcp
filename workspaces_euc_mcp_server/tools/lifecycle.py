@@ -484,7 +484,7 @@ def register(
     async def start_application_fleet(
         fleet_name: str, confirm: bool = False, region: str | None = None
     ) -> dict[str, Any]:
-        """Start a WorkSpaces Applications fleet. Dry-run by default; confirm=true to execute.
+        """Start a WorkSpaces Applications (formerly AppStream 2.0) fleet. Dry-run by default.
 
         Args:
             fleet_name: The fleet name.
@@ -499,7 +499,7 @@ def register(
     async def stop_application_fleet(
         fleet_name: str, confirm: bool = False, region: str | None = None
     ) -> dict[str, Any]:
-        """Stop a WorkSpaces Applications fleet. Dry-run by default; confirm=true to execute.
+        """Stop a WorkSpaces Applications (formerly AppStream 2.0) fleet. Dry-run by default.
 
         Args:
             fleet_name: The fleet name.
@@ -514,7 +514,7 @@ def register(
     async def update_application_fleet_capacity(
         fleet_name: str, desired_instances: int, confirm: bool = False, region: str | None = None
     ) -> dict[str, Any]:
-        """Set a WorkSpaces Applications fleet's desired instance capacity.
+        """Set a WorkSpaces Applications (formerly AppStream 2.0) fleet's desired instance capacity.
 
         Dry-run by default; confirm=true to execute. Changing capacity affects cost.
 

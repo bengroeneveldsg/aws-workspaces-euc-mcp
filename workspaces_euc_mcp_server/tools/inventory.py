@@ -111,9 +111,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_euc_inventory_summary(region: str | None = None) -> dict[str, Any]:
         """Summarize all Amazon WorkSpaces EUC resources in an AWS region.
 
-        Fans out across WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, and
-        WorkSpaces Secure Browser, returning per-service counts broken down by state, the grand
-        total, and any per-service collection errors (e.g. missing permissions). Read-only.
+        Fans out across WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications (formerly
+        AppStream 2.0), and WorkSpaces Secure Browser (formerly WorkSpaces Web), returning
+        per-service counts broken down by state, the grand total, and any per-service collection
+        errors (e.g. missing permissions). Read-only.
 
         Args:
             region: AWS region to inventory. Defaults to the server's configured region.

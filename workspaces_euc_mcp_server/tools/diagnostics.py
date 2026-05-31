@@ -595,10 +595,12 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def diagnose_application_fleet(
         fleet_name: str, region: str | None = None, lookback_hours: int = 24
     ) -> dict[str, Any]:
-        """Diagnose a WorkSpaces Applications fleet's health and capacity.
+        """Diagnose a WorkSpaces Applications (formerly AppStream 2.0) fleet's health and capacity.
 
-        Correlates fleet state, fleet errors, compute capacity, auto-scaling activity, and recent
-        insufficient-capacity CloudWatch errors into a single verdict. Read-only.
+        Use this for any "AppStream" fleet request — WorkSpaces Applications is the rebranded
+        AppStream 2.0 (same service/API). Correlates fleet state, fleet errors, compute capacity,
+        auto-scaling activity, and recent insufficient-capacity CloudWatch errors into a single
+        verdict. Read-only.
 
         Args:
             fleet_name: The fleet name.

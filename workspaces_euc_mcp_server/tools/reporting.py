@@ -284,8 +284,9 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def generate_inventory_report(region: str | None = None) -> dict[str, Any]:
         """Produce a detailed per-resource inventory across the EUC portfolio.
 
-        Lists WorkSpaces Personal desktops, WorkSpaces Pools, WorkSpaces Applications fleets, and
-        WorkSpaces Secure Browser portals with key attributes per resource. Read-only.
+        Lists WorkSpaces Personal desktops, WorkSpaces Pools, WorkSpaces Applications (formerly
+        AppStream 2.0) fleets, and WorkSpaces Secure Browser (formerly WorkSpaces Web) portals with
+        key attributes per resource. Read-only.
 
         Args:
             region: AWS region. Defaults to the server's configured region.

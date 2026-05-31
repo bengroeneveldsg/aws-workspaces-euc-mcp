@@ -10,6 +10,10 @@ End User Computing (EUC) portfolio:
 - **Amazon WorkSpaces Secure Browser** — managed browser (formerly WorkSpaces Web)
 - **Amazon WorkSpaces Core** — partner / bring-your-own VDI integration
 
+**Legacy names are accepted.** Ask using former names and the tools still route correctly, while
+output always uses the current name: **AppStream / AppStream 2.0 → Amazon WorkSpaces Applications**
+(same service, the `appstream` API), and **WorkSpaces Web → Amazon WorkSpaces Secure Browser**.
+
 > Built for the **administrator** persona, following the
 > [official AWS MCP design conventions](https://github.com/awslabs/mcp) (Python, FastMCP,
 > Pydantic, boto3). It is **read-only by default** and **security-first**: write/lifecycle tools
