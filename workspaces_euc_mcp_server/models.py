@@ -48,12 +48,15 @@ class EucInventorySummary(BaseModel):
 
 
 class Finding(BaseModel):
-    """A single observation from a diagnostic tool."""
+    """A single observation from a diagnostic or audit tool."""
 
     severity: str = Field(description="One of: info, warning, critical.")
     title: str = Field(description="Short human-readable headline.")
     detail: str = Field(description="What was observed and why it matters.")
     recommendation: str | None = Field(default=None, description="Suggested next action, if any.")
+    resource_id: str | None = Field(
+        default=None, description="Resource the finding applies to, when relevant."
+    )
 
 
 class Diagnosis(BaseModel):
@@ -150,5 +153,56 @@ class CostSummary(BaseModel):
     currency: str = "USD"
     total: float
     by_service: list[CostLineItem] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class ResourceRecord(BaseModel):
+    """A single resource row in an inventory report."""
+
+    id: str
+    name: str | None = None
+    state: str | None = None
+    attributes: dict[str, object] = Field(default_factory=dict)
+
+
+class InventoryReportSection(BaseModel):
+    service: str
+    resource_type: str
+    resources: list[ResourceRecord] = Field(default_factory=list)
+
+
+class InventoryReport(BaseModel):
+    """Detailed per-resource inventory across the EUC portfolio in a region."""
+
+    region: str | None = None
+    total_resources: int = 0
+    sections: list[InventoryReportSection] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
+class AuditReport(BaseModel):
+    """Security-posture findings across the EUC portfolio in a region."""
+
+    region: str | None = None
+    findings: list[Finding] = Field(default_factory=list)
+    severity_counts: dict[str, int] = Field(default_factory=dict)
+    resources_checked: dict[str, int] = Field(default_factory=dict)
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
+class UnusedResource(BaseModel):
+    service: str
+    resource_type: str
+    id: str
+    reason: str
+
+
+class UnusedResourcesReport(BaseModel):
+    """Candidate idle/unused resources worth reclaiming."""
+
+    region: str | None = None
+    lookback_days: int
+    items: list[UnusedResource] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import consts
 from .clients import ClientFactory
-from .tools import cost, diagnostics, inventory
+from .tools import cost, diagnostics, inventory, reporting
 
 
 def create_server(
@@ -32,6 +32,7 @@ def create_server(
     inventory.register(mcp, factory)
     diagnostics.register(mcp, factory)
     cost.register(mcp, factory)
+    reporting.register(mcp, factory)
 
     if enable_writes:
         # Phase 2 lifecycle tools land here, gated by max_bulk_targets / enable_destructive.
