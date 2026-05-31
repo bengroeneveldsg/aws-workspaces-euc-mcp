@@ -11,6 +11,7 @@ signal is recorded and the diagnosis proceeds with what it could gather.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -18,6 +19,11 @@ from .. import consts
 from ..clients import ClientFactory
 from ..models import Diagnosis, DirectoryHealthReport, Finding, ServiceError
 from ._common import try_call
+
+# AWS Directory Service directory IDs look like d-xxxxxxxxxx. WorkSpaces Pools and other
+# WorkSpaces-managed directories use other prefixes (e.g. wsd-...) that are NOT backed by AWS
+# Directory Service, so ds:DescribeDirectories rejects them.
+_AWS_DS_DIRECTORY_ID = re.compile(r"^d-[0-9a-f]{10}$")
 
 # WorkSpace states that indicate the desktop itself is broken.
 _UNHEALTHY_WORKSPACE_STATES = {"ERROR", "UNHEALTHY", "IMPAIRED"}
@@ -284,6 +290,20 @@ def _diagnose_directory_into(
                     recommendation="Re-register the directory with WorkSpaces.",
                 )
             )
+
+    if not _AWS_DS_DIRECTORY_ID.match(directory_id):
+        # WorkSpaces-managed (e.g. Pools) directory — no AWS Directory Service stage to check.
+        if signals is not None:
+            signals[f"{signals_prefix}stage"] = "N/A (WorkSpaces-managed)"
+        findings.append(
+            Finding(
+                severity="info",
+                title=f"Directory {directory_id} is WorkSpaces-managed",
+                detail="This directory is not backed by AWS Directory Service, so there is no "
+                "Directory Service stage to evaluate; registration state is used instead.",
+            )
+        )
+        return
 
     stage_resp = try_call(
         errors,

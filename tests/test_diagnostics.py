@@ -141,20 +141,40 @@ def test_workspace_connectivity_flags_connection_failures():
     assert diag.status == "degraded"
 
 
+def test_directory_health_skips_ds_for_workspaces_managed_directory():
+    # WorkSpaces Pools directories use wsd-... ids that AWS Directory Service rejects; the tool
+    # must NOT call ds:DescribeDirectories for them. The factory below has no ds client, so any
+    # such call would raise.
+    workspaces = types.SimpleNamespace(
+        describe_workspace_directories=lambda **_: {
+            "Directories": [{"DirectoryId": "wsd-f9bt3329t", "State": "REGISTERED"}]
+        },
+    )
+    factory = FakeFactory({consts.WORKSPACES_API: workspaces})
+
+    report = diagnostics.check_directory_health_core(factory, "wsd-f9bt3329t", "us-east-1")
+
+    assert len(report.directories) == 1
+    d = report.directories[0]
+    assert d.status == "healthy"
+    assert d.errors == []
+    assert any("WorkSpaces-managed" in f.title for f in d.findings)
+
+
 def test_directory_health_flags_impaired_stage():
     workspaces = types.SimpleNamespace(
         describe_workspace_directories=lambda **_: {
-            "Directories": [{"DirectoryId": "d-9", "State": "REGISTERED"}]
+            "Directories": [{"DirectoryId": "d-0123456789", "State": "REGISTERED"}]
         },
     )
     ds = types.SimpleNamespace(
         describe_directories=lambda **_: {
-            "DirectoryDescriptions": [{"DirectoryId": "d-9", "Stage": "Impaired"}]
+            "DirectoryDescriptions": [{"DirectoryId": "d-0123456789", "Stage": "Impaired"}]
         },
     )
     factory = FakeFactory({consts.WORKSPACES_API: workspaces, consts.DIRECTORY_API: ds})
 
-    report = diagnostics.check_directory_health_core(factory, "d-9", "us-east-1")
+    report = diagnostics.check_directory_health_core(factory, "d-0123456789", "us-east-1")
 
     assert len(report.directories) == 1
     d = report.directories[0]
