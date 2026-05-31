@@ -125,6 +125,8 @@ def diagnose_workspace_connectivity_core(
     state = ws.get("State", "UNKNOWN")
     directory_id = ws.get("DirectoryId")
     signals["state"] = state
+    signals["user_name"] = ws.get("UserName")
+    signals["computer_name"] = ws.get("ComputerName")
     signals["directory_id"] = directory_id
     signals["compute_type"] = ws.get("WorkspaceProperties", {}).get("ComputeTypeName")
     signals["running_mode"] = ws.get("WorkspaceProperties", {}).get("RunningMode")

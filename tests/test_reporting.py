@@ -38,17 +38,30 @@ def test_generate_inventory_report_sections():
                 {
                     "WorkspaceId": "ws-1",
                     "State": "AVAILABLE",
+                    "UserName": "alice",
+                    "ComputerName": "WSAMZN-ABC",
+                    "IpAddress": "10.0.0.5",
                     "DirectoryId": "d-1",
                     "BundleId": "wsb-1",
                     "WorkspaceProperties": {
                         "ComputeTypeName": "STANDARD",
                         "RunningMode": "AUTO_STOP",
+                        "OperatingSystemName": "Windows 11",
+                        "RootVolumeSizeGib": 80,
                     },
                 }
             ]
         },
         describe_workspaces_pools=lambda **_: {
-            "WorkspacesPools": [{"PoolId": "wsp-1", "PoolName": "pool", "State": "RUNNING"}]
+            "WorkspacesPools": [
+                {
+                    "PoolId": "wsp-1",
+                    "PoolName": "pool",
+                    "State": "RUNNING",
+                    "CapacityStatus": {"DesiredUserSessions": 10, "ActiveUserSessions": 2},
+                    "BundleId": "wsb-pool",
+                }
+            ]
         },
     )
     appstream = types.SimpleNamespace(
@@ -77,7 +90,16 @@ def test_generate_inventory_report_sections():
     by_service = {s.service: s for s in report.sections}
     personal = by_service[consts.PRODUCT_WORKSPACES_PERSONAL].resources[0]
     assert personal.id == "ws-1"
+    assert personal.name == "alice"  # assigned user surfaced as the record label
+    assert personal.attributes["user_name"] == "alice"
+    assert personal.attributes["computer_name"] == "WSAMZN-ABC"
     assert personal.attributes["bundle_id"] == "wsb-1"
+    assert personal.attributes["operating_system"] == "Windows 11"
+    assert personal.attributes["root_volume_gib"] == 80
+    # Pool capacity now reads CapacityStatus (previously the wrong key -> null).
+    pool = by_service[consts.PRODUCT_WORKSPACES_POOLS].resources[0]
+    assert pool.attributes["capacity"] == {"DesiredUserSessions": 10, "ActiveUserSessions": 2}
+    assert pool.attributes["bundle_id"] == "wsb-pool"
     assert by_service[consts.PRODUCT_SECURE_BROWSER].resources[0].id == "arn:portal/1"
     # The Applications stack section lists its associated fleets.
     stack_sections = [s for s in report.sections if s.resource_type == "Stack"]

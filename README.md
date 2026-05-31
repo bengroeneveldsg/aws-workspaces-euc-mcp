@@ -44,7 +44,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `get_pool_session_history` | A WorkSpaces Pool's user-**session history** (active/available/utilization capacity time-series), flags idle pool capacity (Tier 0). |
 | `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
 | `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
-| `generate_inventory_report` | Detailed per-resource inventory (desktops, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |
+| `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |
 | `audit_security_posture` | Flags WorkSpace volumes without encryption and directories without IP access control groups (Tier 0). |
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 

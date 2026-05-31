@@ -49,12 +49,32 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
             resources=[
                 ResourceRecord(
                     id=w.get("WorkspaceId", ""),
+                    name=w.get("UserName"),
                     state=w.get("State"),
                     attributes={
+                        "user_name": w.get("UserName"),
+                        "computer_name": w.get("ComputerName"),
+                        "ip_address": w.get("IpAddress"),
                         "directory_id": w.get("DirectoryId"),
                         "bundle_id": w.get("BundleId"),
                         "compute_type": w.get("WorkspaceProperties", {}).get("ComputeTypeName"),
                         "running_mode": w.get("WorkspaceProperties", {}).get("RunningMode"),
+                        "operating_system": w.get("WorkspaceProperties", {}).get(
+                            "OperatingSystemName"
+                        ),
+                        "protocols": w.get("WorkspaceProperties", {}).get("Protocols"),
+                        "root_volume_gib": w.get("WorkspaceProperties", {}).get(
+                            "RootVolumeSizeGib"
+                        ),
+                        "user_volume_gib": w.get("WorkspaceProperties", {}).get(
+                            "UserVolumeSizeGib"
+                        ),
+                        "auto_stop_timeout_minutes": w.get("WorkspaceProperties", {}).get(
+                            "RunningModeAutoStopTimeoutInMinutes"
+                        ),
+                        "root_volume_encrypted": w.get("RootVolumeEncryptionEnabled"),
+                        "user_volume_encrypted": w.get("UserVolumeEncryptionEnabled"),
+                        "subnet_id": w.get("SubnetId"),
                     },
                 )
                 for w in (personal or [])
@@ -78,7 +98,15 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                     id=p.get("PoolId", p.get("PoolName", "")),
                     name=p.get("PoolName"),
                     state=p.get("State"),
-                    attributes={"capacity": p.get("Capacity")},
+                    attributes={
+                        "capacity": p.get("CapacityStatus"),
+                        "bundle_id": p.get("BundleId"),
+                        "directory_id": p.get("DirectoryId"),
+                        "running_mode": p.get("RunningMode"),
+                        "description": p.get("Description"),
+                        "created_at": str(p.get("CreatedAt")) if p.get("CreatedAt") else None,
+                        "errors": p.get("Errors"),
+                    },
                 )
                 for p in (pools or [])
             ],
@@ -105,6 +133,12 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "instance_type": f.get("InstanceType"),
                         "fleet_type": f.get("FleetType"),
                         "capacity": f.get("ComputeCapacityStatus"),
+                        "image_name": f.get("ImageName"),
+                        "max_user_duration_seconds": f.get("MaxUserDurationInSeconds"),
+                        "idle_disconnect_timeout_seconds": f.get("IdleDisconnectTimeoutInSeconds"),
+                        "disconnect_timeout_seconds": f.get("DisconnectTimeoutInSeconds"),
+                        "max_sessions_per_instance": f.get("MaxSessionsPerInstance"),
+                        "default_internet_access": f.get("EnableDefaultInternetAccess"),
                     },
                 )
                 for f in (fleets or [])
@@ -138,6 +172,9 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                 attributes={
                     "description": s.get("Description"),
                     "associated_fleets": associated or [],
+                    "user_settings": s.get("UserSettings"),
+                    "storage_connectors": s.get("StorageConnectors"),
+                    "application_settings": s.get("ApplicationSettings"),
                 },
             )
         )
@@ -170,7 +207,14 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                     id=p.get("portalArn", p.get("portalId", "")),
                     name=p.get("displayName"),
                     state=p.get("portalStatus"),
-                    attributes={"browser_type": p.get("browserType")},
+                    attributes={
+                        "browser_type": p.get("browserType"),
+                        "authentication_type": p.get("authenticationType"),
+                        "max_concurrent_sessions": p.get("maxConcurrentSessions"),
+                        "instance_type": p.get("instanceType"),
+                        "renderer_type": p.get("rendererType"),
+                        "portal_endpoint": p.get("portalEndpoint"),
+                    },
                 )
                 for p in (portals or [])
             ],
