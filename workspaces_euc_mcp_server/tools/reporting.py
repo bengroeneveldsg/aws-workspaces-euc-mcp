@@ -49,8 +49,12 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
             resources=[
                 ResourceRecord(
                     id=w.get("WorkspaceId", ""),
+                    name=w.get("UserName"),
                     state=w.get("State"),
                     attributes={
+                        "user_name": w.get("UserName"),
+                        "computer_name": w.get("ComputerName"),
+                        "ip_address": w.get("IpAddress"),
                         "directory_id": w.get("DirectoryId"),
                         "bundle_id": w.get("BundleId"),
                         "compute_type": w.get("WorkspaceProperties", {}).get("ComputeTypeName"),

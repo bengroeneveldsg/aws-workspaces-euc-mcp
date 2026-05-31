@@ -38,6 +38,9 @@ def test_generate_inventory_report_sections():
                 {
                     "WorkspaceId": "ws-1",
                     "State": "AVAILABLE",
+                    "UserName": "alice",
+                    "ComputerName": "WSAMZN-ABC",
+                    "IpAddress": "10.0.0.5",
                     "DirectoryId": "d-1",
                     "BundleId": "wsb-1",
                     "WorkspaceProperties": {
@@ -77,6 +80,9 @@ def test_generate_inventory_report_sections():
     by_service = {s.service: s for s in report.sections}
     personal = by_service[consts.PRODUCT_WORKSPACES_PERSONAL].resources[0]
     assert personal.id == "ws-1"
+    assert personal.name == "alice"  # assigned user surfaced as the record label
+    assert personal.attributes["user_name"] == "alice"
+    assert personal.attributes["computer_name"] == "WSAMZN-ABC"
     assert personal.attributes["bundle_id"] == "wsb-1"
     assert by_service[consts.PRODUCT_SECURE_BROWSER].resources[0].id == "arn:portal/1"
     # The Applications stack section lists its associated fleets.

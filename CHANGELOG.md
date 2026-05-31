@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- WorkSpaces Personal **user mapping**: `generate_inventory_report` now surfaces each desktop's
+  assigned `UserName` (as the record label), `ComputerName`, and `IpAddress` — already returned by
+  `DescribeWorkspaces` but previously dropped. `diagnose_workspace_connectivity` now includes
+  `user_name`/`computer_name` in its signals.
 - `get_workspace_connection_history` and `get_pool_session_history` (Tier 0): time-series usage
   history for WorkSpaces Personal desktops (UserConnected + connection attempts/failures) and
   WorkSpaces Pools (Active/Actual/Available/Desired/Pending user-session capacity +
