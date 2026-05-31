@@ -30,27 +30,41 @@ def _recording_workspaces(failed=None):
     failed = failed or []
     calls: list[tuple[str, dict]] = []
 
-    def start_workspaces(**kwargs):
-        calls.append(("start_workspaces", kwargs))
-        return {"FailedRequests": failed}
+    def _record(name):
+        def fn(**kwargs):
+            calls.append((name, kwargs))
+            if name in {"start_workspaces", "stop_workspaces", "reboot_workspaces"}:
+                return {"FailedRequests": failed}
+            return {}
 
-    def stop_workspaces(**kwargs):
-        calls.append(("stop_workspaces", kwargs))
-        return {"FailedRequests": failed}
-
-    def reboot_workspaces(**kwargs):
-        calls.append(("reboot_workspaces", kwargs))
-        return {"FailedRequests": failed}
-
-    def modify_workspace_properties(**kwargs):
-        calls.append(("modify_workspace_properties", kwargs))
-        return {}
+        return fn
 
     client = types.SimpleNamespace(
-        start_workspaces=start_workspaces,
-        stop_workspaces=stop_workspaces,
-        reboot_workspaces=reboot_workspaces,
-        modify_workspace_properties=modify_workspace_properties,
+        start_workspaces=_record("start_workspaces"),
+        stop_workspaces=_record("stop_workspaces"),
+        reboot_workspaces=_record("reboot_workspaces"),
+        modify_workspace_properties=_record("modify_workspace_properties"),
+        start_workspaces_pool=_record("start_workspaces_pool"),
+        stop_workspaces_pool=_record("stop_workspaces_pool"),
+        update_workspaces_pool=_record("update_workspaces_pool"),
+    )
+    return client, calls
+
+
+def _recording_appstream():
+    calls: list[tuple[str, dict]] = []
+
+    def _record(name):
+        def fn(**kwargs):
+            calls.append((name, kwargs))
+            return {}
+
+        return fn
+
+    client = types.SimpleNamespace(
+        start_fleet=_record("start_fleet"),
+        stop_fleet=_record("stop_fleet"),
+        update_fleet=_record("update_fleet"),
     )
     return client, calls
 
@@ -140,6 +154,61 @@ def test_modify_running_mode_executes_when_confirmed():
     assert outcome.results[0].status == "ok"
 
 
+def test_pool_power_action_dry_run_and_confirm():
+    client, calls = _recording_workspaces()
+    factory = FakeFactory({consts.WORKSPACES_API: client})
+
+    dry = lifecycle.pool_power_action_core(
+        factory, "us-east-1", "start_pool", "wsp-1", confirm=False, max_bulk_targets=25
+    )
+    assert dry.dry_run is True
+    assert calls == []
+
+    done = lifecycle.pool_power_action_core(
+        factory, "us-east-1", "stop_pool", "wsp-1", confirm=True, max_bulk_targets=25
+    )
+    assert done.dry_run is False
+    assert calls[0][0] == "stop_workspaces_pool"
+    assert calls[0][1] == {"PoolId": "wsp-1"}
+    assert done.results[0].status == "ok"
+
+
+def test_update_pool_capacity_validates_and_executes():
+    client, calls = _recording_workspaces()
+    factory = FakeFactory({consts.WORKSPACES_API: client})
+
+    bad = lifecycle.update_pool_capacity_core(
+        factory, "us-east-1", "wsp-1", -1, confirm=True, max_bulk_targets=25
+    )
+    assert "Invalid capacity" in bad.plan
+    assert calls == []
+
+    ok = lifecycle.update_pool_capacity_core(
+        factory, "us-east-1", "wsp-1", 5, confirm=True, max_bulk_targets=25
+    )
+    assert calls[0][0] == "update_workspaces_pool"
+    assert calls[0][1]["Capacity"] == {"DesiredUserSessions": 5}
+    assert ok.results[0].status == "ok"
+
+
+def test_fleet_power_and_capacity():
+    client, calls = _recording_appstream()
+    factory = FakeFactory({consts.APPSTREAM_API: client})
+
+    start = lifecycle.fleet_power_action_core(
+        factory, "us-east-1", "start_fleet", "f1", confirm=True, max_bulk_targets=25
+    )
+    assert calls[0] == ("start_fleet", {"Name": "f1"})
+    assert start.results[0].status == "ok"
+
+    cap = lifecycle.update_fleet_capacity_core(
+        factory, "us-east-1", "f1", 3, confirm=True, max_bulk_targets=25
+    )
+    assert calls[1][0] == "update_fleet"
+    assert calls[1][1]["ComputeCapacity"] == {"DesiredInstances": 3}
+    assert cap.results[0].status == "ok"
+
+
 def test_write_tools_absent_unless_enabled():
     read_only = create_server(region="us-east-1")
     with_writes = create_server(region="us-east-1", enable_writes=True)
@@ -153,4 +222,10 @@ def test_write_tools_absent_unless_enabled():
         "stop_workspaces",
         "reboot_workspaces",
         "modify_workspace_running_mode",
+        "start_workspaces_pool",
+        "stop_workspaces_pool",
+        "update_workspaces_pool_capacity",
+        "start_application_fleet",
+        "stop_application_fleet",
+        "update_application_fleet_capacity",
     } <= w_names
