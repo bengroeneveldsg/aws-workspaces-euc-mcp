@@ -40,9 +40,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bengroeneveldsg/workspaces-euc-mcp"
-Repository = "https://github.com/bengroeneveldsg/workspaces-euc-mcp"
-Issues = "https://github.com/bengroeneveldsg/workspaces-euc-mcp/issues"
+Homepage = "https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp"
+Repository = "https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp"
+Issues = "https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp/issues"
 
 [project.scripts]
 workspaces-euc-mcp-server = "workspaces_euc_mcp_server.server:main"
