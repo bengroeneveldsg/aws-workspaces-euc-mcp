@@ -10,63 +10,12 @@ result, rather than mirroring one API call. Collection is best-effort — a fail
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
-
-from botocore.exceptions import BotoCoreError, ClientError
-from loguru import logger
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import EucInventorySummary, InventoryError, ServiceInventory
-
-
-def _paginate(
-    operation: Callable[..., dict[str, Any]],
-    list_key: str,
-    pagination_in: str = "NextToken",
-    pagination_out: str = "NextToken",
-    **kwargs: Any,
-) -> list[dict[str, Any]]:
-    """Drain a paginated AWS list/describe operation into a flat list.
-
-    ``pagination_in`` / ``pagination_out`` are the request and response field names AWS uses for
-    the continuation marker (e.g. ``NextToken``, or ``nextToken`` for camelCase services).
-    """
-    items: list[dict[str, Any]] = []
-    marker: str | None = None
-    while True:
-        params = dict(kwargs)
-        if marker:
-            params[pagination_in] = marker
-        response = operation(**params)
-        items.extend(response.get(list_key, []))
-        marker = response.get(pagination_out)
-        if not marker:
-            return items
-
-
-def _count_by(items: list[dict[str, Any]], state_key: str) -> dict[str, int]:
-    counts: dict[str, int] = {}
-    for item in items:
-        state = item.get(state_key, "UNKNOWN")
-        counts[state] = counts.get(state, 0) + 1
-    return counts
-
-
-def _safe(
-    errors: list[InventoryError],
-    service: str,
-    operation: str,
-    fn: Callable[[], list[dict[str, Any]]],
-) -> list[dict[str, Any]] | None:
-    """Run a collection step, recording (not raising) AWS errors."""
-    try:
-        return fn()
-    except (ClientError, BotoCoreError) as exc:
-        logger.warning("Inventory step failed: {} {} -> {}", service, operation, exc)
-        errors.append(InventoryError(service=service, operation=operation, message=str(exc)))
-        return None
+from ._common import count_by, paginate, try_call
 
 
 def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventorySummary:
@@ -76,11 +25,11 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
 
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
 
-    personal = _safe(
+    personal = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_PERSONAL,
         "DescribeWorkspaces",
-        lambda: _paginate(workspaces.describe_workspaces, "Workspaces"),
+        lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
     )
     if personal is not None:
         services.append(
@@ -88,15 +37,15 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
                 service=consts.PRODUCT_WORKSPACES_PERSONAL,
                 resource_type="WorkSpace",
                 count=len(personal),
-                by_state=_count_by(personal, "State"),
+                by_state=count_by(personal, "State"),
             )
         )
 
-    pools = _safe(
+    pools = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_POOLS,
         "DescribeWorkspacesPools",
-        lambda: _paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
+        lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
     )
     if pools is not None:
         services.append(
@@ -104,16 +53,16 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
                 service=consts.PRODUCT_WORKSPACES_POOLS,
                 resource_type="WorkSpacesPool",
                 count=len(pools),
-                by_state=_count_by(pools, "State"),
+                by_state=count_by(pools, "State"),
             )
         )
 
     appstream = factory.client(consts.APPSTREAM_API, region=region)
-    fleets = _safe(
+    fleets = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_APPLICATIONS,
         "DescribeFleets",
-        lambda: _paginate(appstream.describe_fleets, "Fleets"),
+        lambda: paginate(appstream.describe_fleets, "Fleets"),
     )
     if fleets is not None:
         services.append(
@@ -121,16 +70,16 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
                 service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
                 resource_type="Fleet",
                 count=len(fleets),
-                by_state=_count_by(fleets, "State"),
+                by_state=count_by(fleets, "State"),
             )
         )
 
     secure_browser = factory.client(consts.SECURE_BROWSER_API, region=region)
-    portals = _safe(
+    portals = try_call(
         errors,
         consts.PRODUCT_SECURE_BROWSER,
         "ListPortals",
-        lambda: _paginate(
+        lambda: paginate(
             secure_browser.list_portals,
             "portals",
             pagination_in="nextToken",
@@ -143,7 +92,7 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
                 service=consts.PRODUCT_SECURE_BROWSER,
                 resource_type="Portal",
                 count=len(portals),
-                by_state=_count_by(portals, "portalStatus"),
+                by_state=count_by(portals, "portalStatus"),
             )
         )
 

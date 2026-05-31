@@ -37,7 +37,11 @@ def paginate(
     pagination_out: str = "NextToken",
     **kwargs: Any,
 ) -> list[dict[str, Any]]:
-    """Drain a paginated AWS list/describe operation into a flat list."""
+    """Drain a paginated AWS list/describe operation into a flat list.
+
+    ``pagination_in`` / ``pagination_out`` are the request and response field names AWS uses for
+    the continuation marker (e.g. ``NextToken``, or ``nextToken`` for camelCase services).
+    """
     items: list[dict[str, Any]] = []
     marker: str | None = None
     while True:
@@ -49,3 +53,12 @@ def paginate(
         marker = response.get(pagination_out)
         if not marker:
             return items
+
+
+def count_by(items: list[dict[str, Any]], state_key: str) -> dict[str, int]:
+    """Count items grouped by a state-like field (missing values count as UNKNOWN)."""
+    counts: dict[str, int] = {}
+    for item in items:
+        state = item.get(state_key, "UNKNOWN")
+        counts[state] = counts.get(state, 0) + 1
+    return counts

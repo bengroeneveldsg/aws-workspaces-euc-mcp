@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+- Internal: consolidated the per-module `try_call` / `paginate` / `count_by` helpers onto the
+  shared `tools/_common.py` (no behaviour change). Refreshed `DESIGN.md` to reflect shipped state
+  and added an "Example admin questions" section to the README.
+
 ### Added
 - Phase 3 destructive tools (Tier 3), registered only with both `--enable-writes` and
   `--enable-destructive`: `terminate_workspaces`, `rebuild_workspaces`, and `restore_workspace`.
