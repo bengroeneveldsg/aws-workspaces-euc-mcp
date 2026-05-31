@@ -1,0 +1,74 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WorkSpacesPersonalPoolsCoreReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "workspaces:DescribeWorkspaces",
+        "workspaces:DescribeWorkspacesConnectionStatus",
+        "workspaces:DescribeWorkspaceDirectories",
+        "workspaces:DescribeWorkspaceBundles",
+        "workspaces:DescribeWorkspacesPools",
+        "workspaces:DescribeWorkspacesPoolSessions",
+        "workspaces:DescribeTags"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WorkSpacesApplicationsReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "appstream:DescribeFleets",
+        "appstream:DescribeStacks",
+        "appstream:DescribeFleetAssociations",
+        "appstream:DescribeSessions"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WorkSpacesSecureBrowserReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "workspaces-web:ListPortals",
+        "workspaces-web:GetPortal",
+        "workspaces-web:ListBrowserSettings",
+        "workspaces-web:ListUserSettings",
+        "workspaces-web:ListNetworkSettings"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "SharedDependenciesReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ds:DescribeDirectories",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics",
+        "application-autoscaling:DescribeScalingActivities"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CostAndPricingReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ce:GetDimensionValues",
+        "pricing:GetProducts"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WorkSpacesPersonalLifecycleWrite",
+      "Effect": "Allow",
+      "Action": [
+        "workspaces:StartWorkspaces",
+        "workspaces:StopWorkspaces",
+        "workspaces:RebootWorkspaces",
+        "workspaces:ModifyWorkspaceProperties"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

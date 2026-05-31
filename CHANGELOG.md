@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Phase 2 guarded lifecycle tools (writes, Tier 2), registered only with `--enable-writes`:
+  `start_workspaces`, `stop_workspaces`, `reboot_workspaces`, and `modify_workspace_running_mode`.
+  Mutations are dry-run unless `confirm=true`, and confirmed bulk actions are refused above
+  `--max-bulk-targets`. Added the Tier 2 IAM policy (`iam/tier2-lifecycle.json`) and
+  `WriteOutcome`/`TargetResult` models.
 - Phase 1 reporting & audit tools (read-only, Tier 0): `generate_inventory_report`,
   `audit_security_posture` (volume encryption + directory IP access control groups), and
   `list_unused_resources`. Added a shared `tools/_common.py` (best-effort call + pagination

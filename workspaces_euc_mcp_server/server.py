@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import consts
 from .clients import ClientFactory
-from .tools import cost, diagnostics, inventory, reporting
+from .tools import cost, diagnostics, inventory, lifecycle, reporting
 
 
 def create_server(
@@ -35,10 +35,16 @@ def create_server(
     reporting.register(mcp, factory)
 
     if enable_writes:
-        # Phase 2 lifecycle tools land here, gated by max_bulk_targets / enable_destructive.
-        logger.warning(
-            "--enable-writes was set, but write/lifecycle tools are not implemented yet "
-            "(planned for Phase 2). Running read-only."
+        logger.info(
+            "Write tools enabled (Tier 2). Mutations are dry-run unless confirm=true and are "
+            "capped at {} targets per bulk action.",
+            max_bulk_targets,
+        )
+        lifecycle.register(
+            mcp,
+            factory,
+            max_bulk_targets=max_bulk_targets,
+            enable_destructive=enable_destructive,
         )
 
     return mcp

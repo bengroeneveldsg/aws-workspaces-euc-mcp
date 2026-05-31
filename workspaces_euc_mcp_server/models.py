@@ -206,3 +206,33 @@ class UnusedResourcesReport(BaseModel):
     items: list[UnusedResource] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class TargetResult(BaseModel):
+    """Outcome of a write action against a single target."""
+
+    target_id: str
+    status: str = Field(description="ok, error, or skipped.")
+    message: str | None = None
+
+
+class WriteOutcome(BaseModel):
+    """Result of a guarded write/lifecycle action.
+
+    Mutations are dry-run by default: unless ``confirmed`` is true the action only reports the plan
+    and changes nothing. Bulk actions are refused when the target count exceeds the blast-radius
+    cap.
+    """
+
+    action: str = Field(description="The lifecycle action requested.")
+    dry_run: bool = Field(description="True when nothing was changed (plan only).")
+    confirmed: bool = Field(description="Whether the caller explicitly confirmed execution.")
+    requested_targets: list[str] = Field(default_factory=list)
+    max_bulk_targets: int = Field(description="Configured blast-radius cap.")
+    blast_radius_ok: bool = Field(
+        description="False when the action was refused for being too large."
+    )
+    plan: str = Field(description="Human-readable description of what would happen / happened.")
+    results: list[TargetResult] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)

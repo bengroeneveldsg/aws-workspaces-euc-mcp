@@ -40,8 +40,22 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 
 Cost/utilization tools need the **Tier 1** IAM policy ([`iam/tier1-cost.json`](iam/tier1-cost.json));
-everything else is **Tier 0** ([`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json)).
-Phase 2+ add guarded lifecycle operations. See [`DESIGN.md`](DESIGN.md).
+everything else above is **Tier 0** ([`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json)).
+
+### Write tools — opt-in, guarded (Phase 2, Tier 2)
+
+Registered **only** when launched with `--enable-writes`, and need the **Tier 2** policy
+([`iam/tier2-lifecycle.json`](iam/tier2-lifecycle.json)). Every mutation is **dry-run by default**
+(returns a plan, changes nothing) unless called with `confirm=true`, and confirmed bulk actions are
+**refused above `--max-bulk-targets`**.
+
+| Tool | Description |
+|------|-------------|
+| `start_workspaces` / `stop_workspaces` / `reboot_workspaces` | Power operations on WorkSpaces Personal desktops (batch, capped). |
+| `modify_workspace_running_mode` | Switch a desktop between `AUTO_STOP` and `ALWAYS_ON`. |
+
+Destructive operations (terminate/rebuild/restore) are **not** included; they are reserved for a
+separately-gated `--enable-destructive` module. See [`DESIGN.md`](DESIGN.md).
 
 ## Requirements
 
