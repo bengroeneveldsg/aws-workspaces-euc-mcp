@@ -80,3 +80,75 @@ class DirectoryHealthReport(BaseModel):
     region: str | None = None
     directories: list[Diagnosis] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
+
+
+class WorkspaceUtilization(BaseModel):
+    """Utilization classification for a single WorkSpaces Personal desktop."""
+
+    workspace_id: str
+    running_mode: str | None = None
+    lookback_days: int
+    active_days: int | None = Field(
+        default=None, description="Days with at least one user connection in the window."
+    )
+    classification: str = Field(description="unused, idle, active, or unknown.")
+
+
+class UtilizationReport(BaseModel):
+    """Utilization rollup across WorkSpaces Personal desktops in a region."""
+
+    region: str | None = None
+    lookback_days: int
+    total: int
+    counts: dict[str, int] = Field(
+        default_factory=dict, description="Count of desktops per classification."
+    )
+    workspaces: list[WorkspaceUtilization] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class Recommendation(BaseModel):
+    """A single cost/utilization optimization recommendation."""
+
+    target_id: str
+    kind: str = Field(description="The recommendation type, e.g. running_mode.")
+    current: str | None = None
+    recommended: str | None = None
+    rationale: str
+    estimated_monthly_savings_usd: float | None = Field(
+        default=None, description="Estimated saving, when it can be computed; otherwise null."
+    )
+    confidence: str = Field(description="low, medium, or high.")
+
+
+class RecommendationReport(BaseModel):
+    """Set of optimization recommendations for a region."""
+
+    region: str | None = None
+    lookback_days: int
+    recommendations: list[Recommendation] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class CostLineItem(BaseModel):
+    service: str
+    amount: float
+
+
+class CostSummary(BaseModel):
+    """Cost rollup for the EUC portfolio over a time window (account-wide)."""
+
+    scope: str = Field(
+        default="account-wide",
+        description="Cost Explorer is not region-scoped; figures are account-wide.",
+    )
+    start: str
+    end: str
+    granularity: str
+    currency: str = "USD"
+    total: float
+    by_service: list[CostLineItem] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)

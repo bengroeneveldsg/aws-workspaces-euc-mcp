@@ -6,7 +6,7 @@ default install needs only **Tier 0**. Grant the smallest tier that covers the t
 | Tier | File | Covers | Mutates? |
 |------|------|--------|----------|
 | 0 | [`tier0-diagnostics.json`](tier0-diagnostics.json) | Inventory, troubleshooting, diagnostics (read-only) | No |
-| 1 | _planned_ | Cost & utilization optimization (adds Cost Explorer / Pricing) | No |
+| 1 | [`tier1-cost.json`](tier1-cost.json) | Cost & utilization optimization (adds Cost Explorer / Pricing) | No |
 | 2 | _planned_ | Lifecycle ops (start/stop/reboot/modify/capacity) | Yes |
 | 3 | _planned_ | Destructive ops (terminate/rebuild/restore) | Yes (irreversible) |
 

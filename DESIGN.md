@@ -185,6 +185,9 @@ human operator** (the pattern the AWS MCP Server uses).
 
 ## 10. Still open (defer)
 
+- `recommend_bundle_rightsizing` is **deferred**: the standard `AWS/WorkSpaces` namespace does not
+  publish CPU/memory, so right-sizing needs the optional WorkSpaces CloudWatch agent (custom
+  namespace). Revisit once we can read those metrics, or drive it from bundle/compute-type signals.
 - Cost tools: Cost Explorer (`ce`) only for v1, or add CUR for finer granularity later?
 - Resource-tag / directory-scoped IAM conditions — which services support them well enough to
   recommend by default.
