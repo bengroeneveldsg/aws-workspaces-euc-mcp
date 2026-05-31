@@ -85,6 +85,34 @@ class DirectoryHealthReport(BaseModel):
     errors: list[ServiceError] = Field(default_factory=list)
 
 
+class MetricStat(BaseModel):
+    """Aggregated values for one CloudWatch metric over the window."""
+
+    latest: float | None = None
+    average: float | None = None
+    peak: float | None = None
+    unit: str
+
+
+class WorkspacePerformance(BaseModel):
+    """Native AWS/WorkSpaces performance metrics for one desktop."""
+
+    workspace_id: str
+    lookback_hours: int
+    metrics: dict[str, MetricStat] = Field(default_factory=dict)
+    note: str | None = None
+
+
+class PerformanceReport(BaseModel):
+    """Performance metrics across one or more WorkSpaces Personal desktops."""
+
+    region: str | None = None
+    lookback_hours: int
+    workspaces: list[WorkspacePerformance] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class WorkspaceUtilization(BaseModel):
     """Utilization classification for a single WorkSpaces Personal desktop."""
 

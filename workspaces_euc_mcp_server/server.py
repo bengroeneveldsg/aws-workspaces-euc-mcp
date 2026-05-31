@@ -13,7 +13,15 @@ from mcp.server.fastmcp import FastMCP
 
 from . import consts
 from .clients import ClientFactory
-from .tools import cost, destructive, diagnostics, inventory, lifecycle, reporting
+from .tools import (
+    cost,
+    destructive,
+    diagnostics,
+    inventory,
+    lifecycle,
+    performance,
+    reporting,
+)
 
 
 def create_server(
@@ -33,6 +41,7 @@ def create_server(
     diagnostics.register(mcp, factory)
     cost.register(mcp, factory)
     reporting.register(mcp, factory)
+    performance.register(mcp, factory)
 
     if enable_writes:
         logger.info(

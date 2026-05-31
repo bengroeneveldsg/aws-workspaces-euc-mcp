@@ -34,6 +34,8 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |
+| `get_workspace_performance` | Native CPU / memory / disk / GPU / latency / uptime metrics per desktop from `AWS/WorkSpaces` — no CloudWatch agent (Tier 0). |
+| `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
 | `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
 | `generate_inventory_report` | Detailed per-resource inventory (desktops, pools, fleets, portals) with key attributes (Tier 0). |
 | `audit_security_posture` | Flags WorkSpace volumes without encryption and directories without IP access control groups (Tier 0). |
