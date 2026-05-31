@@ -18,6 +18,20 @@ APPSTREAM_API = "appstream"  # Amazon WorkSpaces Applications (formerly AppStrea
 SECURE_BROWSER_API = "workspaces-web"  # Amazon WorkSpaces Secure Browser (formerly WorkSpaces Web).
 DIRECTORY_API = "ds"  # AWS Directory Service (shared dependency).
 CLOUDWATCH_API = "cloudwatch"  # Telemetry for diagnostics/cost tools.
+COST_EXPLORER_API = "ce"  # Cost Explorer (global; account-wide, not region-scoped).
+PRICING_API = "pricing"  # AWS Price List (global).
+
+# Cost Explorer is a global endpoint served from us-east-1 regardless of the working region.
+COST_EXPLORER_REGION = "us-east-1"
+
+# Cost Explorer SERVICE dimension values that map to the EUC portfolio. Names can vary by
+# account/era; the filter simply ignores values that produce no results.
+EUC_COST_EXPLORER_SERVICES = [
+    "Amazon WorkSpaces",
+    "Amazon AppStream",
+    "Amazon WorkSpaces Web",
+    "Amazon WorkSpaces Secure Browser",
+]
 
 # Current official product names (used in all human-facing output).
 PRODUCT_WORKSPACES_PERSONAL = "Amazon WorkSpaces Personal"

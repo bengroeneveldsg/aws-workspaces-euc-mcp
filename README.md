@@ -32,8 +32,12 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `diagnose_workspace_connectivity` | Why a WorkSpaces Personal desktop may be unreachable — correlates WorkSpace state, connection status, directory health, and CloudWatch connection metrics into a ranked diagnosis. |
 | `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
 | `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
+| `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
+| `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |
+| `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
 
-Cost/utilization tools are next; Phase 2+ add guarded lifecycle operations. See [`DESIGN.md`](DESIGN.md).
+Cost/utilization tools need the **Tier 1** IAM policy ([`iam/tier1-cost.json`](iam/tier1-cost.json)).
+Phase 2+ add guarded lifecycle operations. See [`DESIGN.md`](DESIGN.md).
 
 ## Requirements
 
