@@ -17,11 +17,14 @@ from typing import Any
 from .. import consts
 from ..clients import ClientFactory
 from ..models import (
+    FleetMetricSeries,
+    FleetUsage,
     MetricStat,
     PerformanceReport,
     Recommendation,
     RecommendationReport,
     ServiceError,
+    UsagePoint,
     WorkspacePerformance,
 )
 from ._common import paginate, try_call
@@ -236,6 +239,111 @@ def recommend_bundle_rightsizing_core(
     )
 
 
+def _fetch_fleet_usage(
+    cloudwatch: Any, fleet_name: str, lookback_days: int, period_hours: int
+) -> dict[str, FleetMetricSeries]:
+    """Fetch Average + Maximum time-series for each AWS/AppStream fleet capacity metric."""
+    end = datetime.now(UTC)
+    start = end - timedelta(days=lookback_days)
+    period = period_hours * 3600
+    stat_suffix = {"Average": "avg", "Maximum": "max"}
+    queries: list[dict[str, Any]] = []
+    for i, (name, _unit) in enumerate(consts.APPSTREAM_FLEET_METRICS):
+        for stat in ("Average", "Maximum"):
+            queries.append(
+                {
+                    "Id": f"f{i}_{stat_suffix[stat]}",
+                    "MetricStat": {
+                        "Metric": {
+                            "Namespace": "AWS/AppStream",
+                            "MetricName": name,
+                            "Dimensions": [{"Name": "Fleet", "Value": fleet_name}],
+                        },
+                        "Period": period,
+                        "Stat": stat,
+                    },
+                    "ReturnData": True,
+                }
+            )
+    response = cloudwatch.get_metric_data(
+        MetricDataQueries=queries,
+        StartTime=start,
+        EndTime=end,
+        ScanBy="TimestampAscending",
+    )
+    by_id = {r.get("Id"): r for r in response.get("MetricDataResults", [])}
+
+    out: dict[str, FleetMetricSeries] = {}
+    for i, (name, unit) in enumerate(consts.APPSTREAM_FLEET_METRICS):
+        avg = by_id.get(f"f{i}_avg", {})
+        mx = by_id.get(f"f{i}_max", {})
+        avg_vals = avg.get("Values", [])
+        avg_ts = avg.get("Timestamps", [])
+        max_vals = mx.get("Values", [])
+        if not avg_vals and not max_vals:
+            continue
+        series = [
+            UsagePoint(
+                timestamp=str(avg_ts[j]) if j < len(avg_ts) else str(j),
+                average=avg_vals[j] if j < len(avg_vals) else None,
+                peak=max_vals[j] if j < len(max_vals) else None,
+            )
+            for j in range(max(len(avg_vals), len(max_vals)))
+        ]
+        out[name] = FleetMetricSeries(
+            unit=unit,
+            latest=avg_vals[-1] if avg_vals else None,
+            average=(sum(avg_vals) / len(avg_vals)) if avg_vals else None,
+            peak=max(max_vals) if max_vals else None,
+            series=series,
+        )
+    return out
+
+
+def _summarize_fleet_usage(metrics: dict[str, FleetMetricSeries], lookback_days: int) -> str:
+    if not metrics:
+        return "No usage datapoints — the fleet was likely stopped for the whole window."
+    in_use = metrics.get("InUseCapacity")
+    running = metrics.get("RunningCapacity") or metrics.get("ActualCapacity")
+    util = metrics.get("CapacityUtilization")
+    if in_use and (in_use.peak or 0) == 0 and running and (running.peak or 0) > 0:
+        return (
+            f"Zero sessions in use across {lookback_days}d, yet up to {running.peak:.0f} "
+            "instance(s) were kept running — idle running capacity (cost with no usage). Consider "
+            "stopping the fleet or lowering desired capacity."
+        )
+    if in_use and in_use.peak is not None:
+        util_txt = f"; peak utilization {util.peak:.0f}%" if util and util.peak is not None else ""
+        return f"Peak {in_use.peak:.0f} instance(s) in use over {lookback_days}d{util_txt}."
+    return None
+
+
+def get_application_fleet_usage_core(
+    factory: ClientFactory,
+    fleet_name: str,
+    region: str | None,
+    lookback_days: int = 7,
+    period_hours: int = 24,
+) -> FleetUsage:
+    errors: list[ServiceError] = []
+    cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
+    metrics = try_call(
+        errors,
+        "Amazon CloudWatch",
+        "GetMetricData",
+        lambda: _fetch_fleet_usage(cloudwatch, fleet_name, lookback_days, period_hours),
+        default={},
+    )
+    return FleetUsage(
+        fleet_name=fleet_name,
+        lookback_days=lookback_days,
+        period_hours=period_hours,
+        metrics=metrics or {},
+        summary=_summarize_fleet_usage(metrics or {}, lookback_days),
+        errors=errors,
+    )
+
+
 def register(mcp: Any, factory: ClientFactory) -> None:
     """Register performance & right-sizing tools on the FastMCP app."""
 
@@ -273,5 +381,31 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         report = recommend_bundle_rightsizing_core(factory, region or factory.region, lookback_days)
         return report.model_dump()
 
+    async def get_application_fleet_usage(
+        fleet_name: str,
+        region: str | None = None,
+        lookback_days: int = 7,
+        period_hours: int = 24,
+    ) -> dict[str, Any]:
+        """Get a WorkSpaces Applications (formerly AppStream 2.0) fleet's usage history.
+
+        Returns the AWS/AppStream capacity time-series for the fleet (InUseCapacity,
+        CapacityUtilization, Running/Available/Actual/Desired/PendingCapacity) over the window, as
+        per-bucket points plus latest/average/peak, with a plain-language summary (e.g. flags idle
+        running capacity). For a stack, resolve its fleet first (see generate_inventory_report).
+        Read-only.
+
+        Args:
+            fleet_name: The fleet name (the fleet behind the stack, not the stack name).
+            region: AWS region. Defaults to the server's configured region.
+            lookback_days: Window length (default 7).
+            period_hours: Time-bucket size in hours (default 24 = daily; use 1 for hourly).
+        """
+        usage = get_application_fleet_usage_core(
+            factory, fleet_name, region or factory.region, lookback_days, period_hours
+        )
+        return usage.model_dump()
+
     mcp.add_tool(get_workspace_performance)
     mcp.add_tool(recommend_bundle_rightsizing)
+    mcp.add_tool(get_application_fleet_usage)

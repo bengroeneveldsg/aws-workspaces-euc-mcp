@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `get_application_fleet_usage` (Tier 0): time-series **usage history** for a WorkSpaces
+  Applications fleet from the `AWS/AppStream` namespace (InUseCapacity, CapacityUtilization,
+  Running/Available/Actual/Desired/Pending capacity) — per-bucket points plus latest/average/peak
+  and a plain-language summary that flags idle running capacity.
 - WorkSpaces Applications **stacks**: `get_euc_inventory_summary` now counts stacks (alongside
   fleets) and `generate_inventory_report` lists each stack with its associated fleets
   (`ListAssociatedFleets`). IAM policies updated to use `appstream:ListAssociatedFleets` /
