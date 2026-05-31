@@ -53,6 +53,10 @@ Registered **only** when launched with `--enable-writes`, and need the **Tier 2*
 |------|-------------|
 | `start_workspaces` / `stop_workspaces` / `reboot_workspaces` | Power operations on WorkSpaces Personal desktops (batch, capped). |
 | `modify_workspace_running_mode` | Switch a desktop between `AUTO_STOP` and `ALWAYS_ON`. |
+| `start_workspaces_pool` / `stop_workspaces_pool` | Power a WorkSpaces Pool on/off. |
+| `update_workspaces_pool_capacity` | Set a Pool's desired user-session capacity. |
+| `start_application_fleet` / `stop_application_fleet` | Power a WorkSpaces Applications fleet on/off. |
+| `update_application_fleet_capacity` | Set a fleet's desired instance capacity. |
 
 Destructive operations (terminate/rebuild/restore) are **not** included; they are reserved for a
 separately-gated `--enable-destructive` module. See [`DESIGN.md`](DESIGN.md).

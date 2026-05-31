@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Phase 2 guarded lifecycle tools for WorkSpaces Pools and Applications (writes, Tier 2):
+  `start_workspaces_pool`, `stop_workspaces_pool`, `update_workspaces_pool_capacity`,
+  `start_application_fleet`, `stop_application_fleet`, and `update_application_fleet_capacity`.
+  Same safety model (dry-run default, opt-in registration); Tier 2 policy extended with the Pools
+  and AppStream start/stop/update actions.
 - Phase 2 guarded lifecycle tools (writes, Tier 2), registered only with `--enable-writes`:
   `start_workspaces`, `stop_workspaces`, `reboot_workspaces`, and `modify_workspace_running_mode`.
   Mutations are dry-run unless `confirm=true`, and confirmed bulk actions are refused above

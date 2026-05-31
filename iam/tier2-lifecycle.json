@@ -69,6 +69,26 @@
         "workspaces:ModifyWorkspaceProperties"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "WorkSpacesPoolsLifecycleWrite",
+      "Effect": "Allow",
+      "Action": [
+        "workspaces:StartWorkspacesPool",
+        "workspaces:StopWorkspacesPool",
+        "workspaces:UpdateWorkspacesPool"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "WorkSpacesApplicationsLifecycleWrite",
+      "Effect": "Allow",
+      "Action": [
+        "appstream:StartFleet",
+        "appstream:StopFleet",
+        "appstream:UpdateFleet"
+      ],
+      "Resource": "*"
     }
   ]
 }
