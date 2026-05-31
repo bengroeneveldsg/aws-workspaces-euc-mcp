@@ -24,14 +24,16 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 ## Status
 
-**Phase 0 (scaffold)** — a working read-only vertical slice with one end-to-end tool:
+**Phase 1 (in progress)** — read-only inventory and troubleshooting tools:
 
 | Tool | Description |
 |------|-------------|
 | `get_euc_inventory_summary` | Cross-service inventory for a region: per-service counts by state, grand total, and any per-service collection errors. |
+| `diagnose_workspace_connectivity` | Why a WorkSpaces Personal desktop may be unreachable — correlates WorkSpace state, connection status, directory health, and CloudWatch connection metrics into a ranked diagnosis. |
+| `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
+| `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
 
-Phase 1 adds the full diagnostics and cost tools; Phase 2+ add guarded lifecycle operations. See
-[`DESIGN.md`](DESIGN.md).
+Cost/utilization tools are next; Phase 2+ add guarded lifecycle operations. See [`DESIGN.md`](DESIGN.md).
 
 ## Requirements
 
