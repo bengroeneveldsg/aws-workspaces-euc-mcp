@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Phase 1 reporting & audit tools (read-only, Tier 0): `generate_inventory_report`,
+  `audit_security_posture` (volume encryption + directory IP access control groups), and
+  `list_unused_resources`. Added a shared `tools/_common.py` (best-effort call + pagination
+  helpers) and inventory/audit/unused-resource models; `Finding` gained an optional `resource_id`.
 - Phase 1 cost & utilization tools (read-only, Tier 1): `analyze_workspace_utilization`,
   `recommend_running_mode`, and `get_euc_cost_summary`, plus the Tier 1 IAM policy
   (`iam/tier1-cost.json`) adding Cost Explorer and Pricing access.

@@ -35,8 +35,12 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |
 | `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
+| `generate_inventory_report` | Detailed per-resource inventory (desktops, pools, fleets, portals) with key attributes (Tier 0). |
+| `audit_security_posture` | Flags WorkSpace volumes without encryption and directories without IP access control groups (Tier 0). |
+| `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 
-Cost/utilization tools need the **Tier 1** IAM policy ([`iam/tier1-cost.json`](iam/tier1-cost.json)).
+Cost/utilization tools need the **Tier 1** IAM policy ([`iam/tier1-cost.json`](iam/tier1-cost.json));
+everything else is **Tier 0** ([`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json)).
 Phase 2+ add guarded lifecycle operations. See [`DESIGN.md`](DESIGN.md).
 
 ## Requirements
