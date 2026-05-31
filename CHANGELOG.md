@@ -6,6 +6,12 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `get_workspace_connection_history` and `get_pool_session_history` (Tier 0): time-series usage
+  history for WorkSpaces Personal desktops (UserConnected + connection attempts/failures) and
+  WorkSpaces Pools (Active/Actual/Available/Desired/Pending user-session capacity +
+  utilization), each with a plain-language summary that flags unused desktops / idle pool
+  capacity. Generalized the CloudWatch series fetch and added a generic `UsageHistory` model.
+  Note: the Pools CloudWatch dimension is literally `"WorkSpaces pool ID"` (with spaces).
 - `get_application_fleet_usage` (Tier 0): time-series **usage history** for a WorkSpaces
   Applications fleet from the `AWS/AppStream` namespace (InUseCapacity, CapacityUtilization,
   Running/Available/Actual/Desired/Pending capacity) — per-bucket points plus latest/average/peak

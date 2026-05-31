@@ -24,6 +24,7 @@ from ..models import (
     Recommendation,
     RecommendationReport,
     ServiceError,
+    UsageHistory,
     UsagePoint,
     WorkspacePerformance,
 )
@@ -239,25 +240,31 @@ def recommend_bundle_rightsizing_core(
     )
 
 
-def _fetch_fleet_usage(
-    cloudwatch: Any, fleet_name: str, lookback_days: int, period_hours: int
+def _fetch_metric_series(
+    cloudwatch: Any,
+    namespace: str,
+    dimension_name: str,
+    dimension_value: str,
+    metric_specs: list[tuple[str, str]],
+    lookback_days: int,
+    period_hours: int,
 ) -> dict[str, FleetMetricSeries]:
-    """Fetch Average + Maximum time-series for each AWS/AppStream fleet capacity metric."""
+    """Fetch Average + Maximum time-series for each metric and reduce to aggregates + series."""
     end = datetime.now(UTC)
     start = end - timedelta(days=lookback_days)
     period = period_hours * 3600
     stat_suffix = {"Average": "avg", "Maximum": "max"}
     queries: list[dict[str, Any]] = []
-    for i, (name, _unit) in enumerate(consts.APPSTREAM_FLEET_METRICS):
+    for i, (name, _unit) in enumerate(metric_specs):
         for stat in ("Average", "Maximum"):
             queries.append(
                 {
-                    "Id": f"f{i}_{stat_suffix[stat]}",
+                    "Id": f"s{i}_{stat_suffix[stat]}",
                     "MetricStat": {
                         "Metric": {
-                            "Namespace": "AWS/AppStream",
+                            "Namespace": namespace,
                             "MetricName": name,
-                            "Dimensions": [{"Name": "Fleet", "Value": fleet_name}],
+                            "Dimensions": [{"Name": dimension_name, "Value": dimension_value}],
                         },
                         "Period": period,
                         "Stat": stat,
@@ -274,9 +281,9 @@ def _fetch_fleet_usage(
     by_id = {r.get("Id"): r for r in response.get("MetricDataResults", [])}
 
     out: dict[str, FleetMetricSeries] = {}
-    for i, (name, unit) in enumerate(consts.APPSTREAM_FLEET_METRICS):
-        avg = by_id.get(f"f{i}_avg", {})
-        mx = by_id.get(f"f{i}_max", {})
+    for i, (name, unit) in enumerate(metric_specs):
+        avg = by_id.get(f"s{i}_avg", {})
+        mx = by_id.get(f"s{i}_max", {})
         avg_vals = avg.get("Values", [])
         avg_ts = avg.get("Timestamps", [])
         max_vals = mx.get("Values", [])
@@ -298,6 +305,20 @@ def _fetch_fleet_usage(
             series=series,
         )
     return out
+
+
+def _fetch_fleet_usage(
+    cloudwatch: Any, fleet_name: str, lookback_days: int, period_hours: int
+) -> dict[str, FleetMetricSeries]:
+    return _fetch_metric_series(
+        cloudwatch,
+        "AWS/AppStream",
+        "Fleet",
+        fleet_name,
+        consts.APPSTREAM_FLEET_METRICS,
+        lookback_days,
+        period_hours,
+    )
 
 
 def _summarize_fleet_usage(metrics: dict[str, FleetMetricSeries], lookback_days: int) -> str:
@@ -340,6 +361,114 @@ def get_application_fleet_usage_core(
         period_hours=period_hours,
         metrics=metrics or {},
         summary=_summarize_fleet_usage(metrics or {}, lookback_days),
+        errors=errors,
+    )
+
+
+def _count_active_buckets(series: list[UsagePoint]) -> int:
+    return sum(1 for p in series if (p.peak or 0) >= 1)
+
+
+def _summarize_connection_history(metrics: dict[str, FleetMetricSeries], lookback_days: int) -> str:
+    connected = metrics.get("UserConnected")
+    if not connected or not connected.series:
+        return f"No connection datapoints in {lookback_days}d (desktop may be stopped/unused)."
+    active = _count_active_buckets(connected.series)
+    total = len(connected.series)
+    if active == 0:
+        return f"No user connections in any of the {total} buckets over {lookback_days}d (unused)."
+    failures = metrics.get("ConnectionFailure")
+    fail_txt = ""
+    if failures and (failures.peak or 0) > 0:
+        fail_txt = " Connection failures were recorded — check connectivity."
+    return f"Connected in {active} of {total} buckets over {lookback_days}d.{fail_txt}"
+
+
+def get_workspace_connection_history_core(
+    factory: ClientFactory,
+    workspace_id: str,
+    region: str | None,
+    lookback_days: int = 7,
+    period_hours: int = 24,
+) -> UsageHistory:
+    errors: list[ServiceError] = []
+    cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
+    metrics = try_call(
+        errors,
+        "Amazon CloudWatch",
+        "GetMetricData",
+        lambda: _fetch_metric_series(
+            cloudwatch,
+            "AWS/WorkSpaces",
+            "WorkspaceId",
+            workspace_id,
+            consts.WORKSPACES_CONNECTION_METRICS,
+            lookback_days,
+            period_hours,
+        ),
+        default={},
+    )
+    return UsageHistory(
+        target_type=consts.PRODUCT_WORKSPACES_PERSONAL,
+        target_id=workspace_id,
+        lookback_days=lookback_days,
+        period_hours=period_hours,
+        metrics=metrics or {},
+        summary=_summarize_connection_history(metrics or {}, lookback_days),
+        errors=errors,
+    )
+
+
+def _summarize_pool_session_history(
+    metrics: dict[str, FleetMetricSeries], lookback_days: int
+) -> str:
+    if not metrics:
+        return f"No session datapoints in {lookback_days}d (pool may be stopped)."
+    active = metrics.get("ActiveUserSessionCapacity")
+    util = metrics.get("UserSessionsCapacityUtilization")
+    actual = metrics.get("ActualUserSessionCapacity")
+    if active and (active.peak or 0) == 0 and actual and (actual.peak or 0) > 0:
+        return (
+            f"Zero active sessions across {lookback_days}d, yet up to {actual.peak:.0f} session "
+            "slot(s) were kept available — idle pool capacity (cost with no usage)."
+        )
+    if active and active.peak is not None:
+        util_txt = f"; peak utilization {util.peak:.0f}%" if util and util.peak is not None else ""
+        return f"Peak {active.peak:.0f} active session(s) over {lookback_days}d{util_txt}."
+    return None
+
+
+def get_pool_session_history_core(
+    factory: ClientFactory,
+    pool_id: str,
+    region: str | None,
+    lookback_days: int = 7,
+    period_hours: int = 24,
+) -> UsageHistory:
+    errors: list[ServiceError] = []
+    cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
+    metrics = try_call(
+        errors,
+        "Amazon CloudWatch",
+        "GetMetricData",
+        lambda: _fetch_metric_series(
+            cloudwatch,
+            "AWS/WorkSpaces",
+            consts.WORKSPACES_POOL_DIMENSION,
+            pool_id,
+            consts.WORKSPACES_POOL_SESSION_METRICS,
+            lookback_days,
+            period_hours,
+        ),
+        default={},
+    )
+    return UsageHistory(
+        target_type=consts.PRODUCT_WORKSPACES_POOLS,
+        target_id=pool_id,
+        lookback_days=lookback_days,
+        period_hours=period_hours,
+        metrics=metrics or {},
+        summary=_summarize_pool_session_history(metrics or {}, lookback_days),
         errors=errors,
     )
 
@@ -406,6 +535,55 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return usage.model_dump()
 
+    async def get_workspace_connection_history(
+        workspace_id: str,
+        region: str | None = None,
+        lookback_days: int = 7,
+        period_hours: int = 24,
+    ) -> dict[str, Any]:
+        """Get a WorkSpaces Personal desktop's connection/session history.
+
+        Returns the AWS/WorkSpaces connection time-series for the desktop (UserConnected, and —
+        when present — ConnectionAttempt/Success/Failure, SessionLaunchTime, InSessionLatency) as
+        per-bucket points plus latest/average/peak, with a plain-language summary. Read-only.
+
+        Args:
+            workspace_id: The WorkSpace ID (ws-...).
+            region: AWS region. Defaults to the server's configured region.
+            lookback_days: Window length (default 7).
+            period_hours: Bucket size in hours (default 24 = daily; use 1 for hourly).
+        """
+        usage = get_workspace_connection_history_core(
+            factory, workspace_id, region or factory.region, lookback_days, period_hours
+        )
+        return usage.model_dump()
+
+    async def get_pool_session_history(
+        pool_id: str,
+        region: str | None = None,
+        lookback_days: int = 7,
+        period_hours: int = 24,
+    ) -> dict[str, Any]:
+        """Get a WorkSpaces Pool's user-session history.
+
+        Returns the AWS/WorkSpaces session-capacity time-series for the pool
+        (Active/Actual/Available/Desired/PendingUserSessionCapacity and
+        UserSessionsCapacityUtilization) as per-bucket points plus latest/average/peak, with a
+        plain-language summary that flags idle pool capacity. Read-only.
+
+        Args:
+            pool_id: The WorkSpaces Pool ID (wspool-...).
+            region: AWS region. Defaults to the server's configured region.
+            lookback_days: Window length (default 7).
+            period_hours: Bucket size in hours (default 24 = daily; use 1 for hourly).
+        """
+        usage = get_pool_session_history_core(
+            factory, pool_id, region or factory.region, lookback_days, period_hours
+        )
+        return usage.model_dump()
+
     mcp.add_tool(get_workspace_performance)
     mcp.add_tool(recommend_bundle_rightsizing)
     mcp.add_tool(get_application_fleet_usage)
+    mcp.add_tool(get_workspace_connection_history)
+    mcp.add_tool(get_pool_session_history)
