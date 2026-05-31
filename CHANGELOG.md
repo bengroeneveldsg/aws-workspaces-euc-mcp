@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- WorkSpaces Applications **stacks**: `get_euc_inventory_summary` now counts stacks (alongside
+  fleets) and `generate_inventory_report` lists each stack with its associated fleets
+  (`ListAssociatedFleets`). IAM policies updated to use `appstream:ListAssociatedFleets` /
+  `ListAssociatedStacks` (replacing a non-existent `DescribeFleetAssociations`).
 - Legacy service-name acceptance: the server instructions and application-fleet tool descriptions
   now teach the model that "AppStream" / "AppStream 2.0" means Amazon WorkSpaces Applications (and
   "WorkSpaces Web" means Secure Browser), so queries using former names route correctly while

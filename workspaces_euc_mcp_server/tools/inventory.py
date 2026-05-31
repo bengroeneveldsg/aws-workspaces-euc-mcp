@@ -74,6 +74,21 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
             )
         )
 
+    stacks = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_APPLICATIONS,
+        "DescribeStacks",
+        lambda: paginate(appstream.describe_stacks, "Stacks"),
+    )
+    if stacks is not None:
+        services.append(
+            ServiceInventory(
+                service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
+                resource_type="Stack",
+                count=len(stacks),
+            )
+        )
+
     secure_browser = factory.client(consts.SECURE_BROWSER_API, region=region)
     portals = try_call(
         errors,
