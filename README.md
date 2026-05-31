@@ -35,6 +35,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `get_euc_inventory_summary` | Cross-service inventory for a region: per-service counts by state, grand total, and any per-service collection errors. |
 | `diagnose_workspace_connectivity` | Why a WorkSpaces Personal desktop may be unreachable — correlates WorkSpace state, connection status, directory health, and CloudWatch connection metrics into a ranked diagnosis. |
 | `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
+| `get_application_fleet_usage` | A WorkSpaces Applications fleet's **usage history** — AWS/AppStream capacity/utilization time-series over a window, with a plain-language summary (e.g. idle running capacity) (Tier 0). |
 | `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |

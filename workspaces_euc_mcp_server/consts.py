@@ -81,6 +81,19 @@ WORKSPACES_PERFORMANCE_METRICS = [
     ("UDPPacketLossRate", "Percent"),
 ]
 
+# Capacity/utilization metrics published to AWS/AppStream for a fleet (dimension Fleet), used for
+# WorkSpaces Applications fleet usage history. (ActiveSessions etc. only exist for elastic /
+# multi-session fleets, so they are not in the base set.)
+APPSTREAM_FLEET_METRICS = [
+    ("InUseCapacity", "Count"),
+    ("CapacityUtilization", "Percent"),
+    ("ActualCapacity", "Count"),
+    ("AvailableCapacity", "Count"),
+    ("RunningCapacity", "Count"),
+    ("DesiredCapacity", "Count"),
+    ("PendingCapacity", "Count"),
+]
+
 SERVER_INSTRUCTIONS = """\
 Administrator-focused MCP server for the Amazon WorkSpaces End User Computing portfolio:
 WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, WorkSpaces Secure Browser, and

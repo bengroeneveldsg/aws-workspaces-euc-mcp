@@ -113,6 +113,35 @@ class PerformanceReport(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class UsagePoint(BaseModel):
+    """One time-bucket in a usage time-series."""
+
+    timestamp: str
+    average: float | None = None
+    peak: float | None = None
+
+
+class FleetMetricSeries(BaseModel):
+    """Aggregates plus the per-bucket time-series for one fleet metric."""
+
+    unit: str
+    latest: float | None = None
+    average: float | None = None
+    peak: float | None = None
+    series: list[UsagePoint] = Field(default_factory=list)
+
+
+class FleetUsage(BaseModel):
+    """Usage history for a WorkSpaces Applications fleet over a window."""
+
+    fleet_name: str
+    lookback_days: int
+    period_hours: int
+    metrics: dict[str, FleetMetricSeries] = Field(default_factory=dict)
+    summary: str | None = None
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
 class WorkspaceUtilization(BaseModel):
     """Utilization classification for a single WorkSpaces Personal desktop."""
 

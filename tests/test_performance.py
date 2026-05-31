@@ -114,6 +114,69 @@ def test_rightsizing_recommends_upsize_for_pressure():
     assert rec.confidence == "high"  # peak CPU > 95
 
 
+def _cloudwatch_with_timestamps(series_by_metric: dict[str, dict[str, dict]]):
+    """series_by_metric: {MetricName: {'Average': {'Timestamps':[...], 'Values':[...]},
+    'Maximum': {'Values':[...]}}}."""
+
+    def get_metric_data(**kwargs):
+        results = []
+        for q in kwargs["MetricDataQueries"]:
+            name = q["MetricStat"]["Metric"]["MetricName"]
+            stat = q["MetricStat"]["Stat"]
+            block = series_by_metric.get(name, {}).get(stat, {})
+            results.append(
+                {
+                    "Id": q["Id"],
+                    "Timestamps": block.get("Timestamps", []),
+                    "Values": block.get("Values", []),
+                }
+            )
+        return {"MetricDataResults": results}
+
+    return types.SimpleNamespace(get_metric_data=get_metric_data)
+
+
+def test_fleet_usage_returns_series_and_flags_idle_running_capacity():
+    cw = _cloudwatch_with_timestamps(
+        {
+            "InUseCapacity": {
+                "Average": {"Timestamps": ["d1", "d2", "d3"], "Values": [0.0, 0.0, 0.0]},
+                "Maximum": {"Values": [0.0, 0.0, 0.0]},
+            },
+            "RunningCapacity": {
+                "Average": {"Timestamps": ["d1", "d2", "d3"], "Values": [2.0, 2.0, 2.0]},
+                "Maximum": {"Values": [2.0, 2.0, 2.0]},
+            },
+            "CapacityUtilization": {
+                "Average": {"Timestamps": ["d1", "d2", "d3"], "Values": [0.0, 0.0, 0.0]},
+                "Maximum": {"Values": [0.0, 0.0, 0.0]},
+            },
+        }
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+
+    usage = performance.get_application_fleet_usage_core(
+        factory, "f-idle", "us-east-1", lookback_days=3, period_hours=24
+    )
+
+    assert usage.fleet_name == "f-idle"
+    inuse = usage.metrics["InUseCapacity"]
+    assert inuse.peak == 0.0
+    assert len(inuse.series) == 3
+    assert usage.metrics["RunningCapacity"].peak == 2.0
+    assert "idle running capacity" in (usage.summary or "")
+
+
+def test_fleet_usage_handles_stopped_fleet():
+    cw = _cloudwatch_with_timestamps({})  # no datapoints
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+
+    usage = performance.get_application_fleet_usage_core(factory, "f-stopped", "us-east-1")
+
+    assert usage.metrics == {}
+    assert "stopped" in (usage.summary or "").lower()
+
+
 def test_rightsizing_skips_graphics_and_no_data():
     workspaces = _workspaces_client(
         [
