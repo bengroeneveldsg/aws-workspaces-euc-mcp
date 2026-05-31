@@ -42,6 +42,32 @@ PRODUCT_SECURE_BROWSER = "Amazon WorkSpaces Secure Browser"
 # Default blast-radius cap for any (future, Phase 2) bulk mutation.
 DEFAULT_MAX_BULK_TARGETS = 25
 
+# WorkSpaces Personal general-purpose compute types, smallest -> largest. Used by bundle
+# right-sizing to step a desktop up/down one size. Graphics families are intentionally excluded
+# (different hardware/pricing; not safe to auto-suggest across).
+WORKSPACES_COMPUTE_ORDER = ["VALUE", "STANDARD", "PERFORMANCE", "POWER", "POWERPRO"]
+
+# Performance metrics published natively to the AWS/WorkSpaces namespace (keyed by WorkspaceId),
+# with a best-effort unit label. No CloudWatch agent is required for these.
+WORKSPACES_PERFORMANCE_METRICS = [
+    ("CPUUsage", "Percent"),
+    ("MemoryUsage", "Percent"),
+    ("GPUUsage", "Percent"),
+    ("FramesPerSecond", "Count"),
+    ("RootVolumeDiskUsage", "Percent"),
+    ("UserVolumeDiskUsage", "Percent"),
+    ("InSessionLatency", "Milliseconds"),
+    ("UpTime", "Seconds"),
+    ("Bandwidth", "Bytes"),
+    ("BandwidthInbound", "Bytes"),
+    ("CPUQueueLength", "Count"),
+    ("MemoryPageHardFaults", "Count"),
+    ("RootVolumeDiskIOQueueLength", "Count"),
+    ("UserVolumeDiskIOQueueLength", "Count"),
+    ("TCPRetransmissionRate", "Percent"),
+    ("UDPPacketLossRate", "Percent"),
+]
+
 SERVER_INSTRUCTIONS = """\
 Administrator-focused MCP server for the Amazon WorkSpaces End User Computing portfolio:
 WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, WorkSpaces Secure Browser, and

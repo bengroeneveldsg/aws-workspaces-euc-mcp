@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `get_workspace_performance` (Tier 0): native per-desktop CPU/memory/GPU/FPS/disk/latency/uptime
+  metrics from the `AWS/WorkSpaces` namespace (latest/average/peak), no CloudWatch agent required.
+- `recommend_bundle_rightsizing` (Tier 0): now implemented on the native CPU/memory metrics —
+  suggests smaller/larger compute types from window-peak headroom (general families; graphics
+  excluded). This corrects an earlier wrong assumption that these metrics required the CloudWatch
+  agent; verified against a live account.
+
 ### Changed
 - Internal: consolidated the per-module `try_call` / `paginate` / `count_by` helpers onto the
   shared `tools/_common.py` (no behaviour change). Refreshed `DESIGN.md` to reflect shipped state

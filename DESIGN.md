@@ -192,9 +192,12 @@ human operator** (the pattern the AWS MCP Server uses).
 
 ## 10. Still open (defer)
 
-- `recommend_bundle_rightsizing` is **deferred**: the standard `AWS/WorkSpaces` namespace does not
-  publish CPU/memory, so right-sizing needs the optional WorkSpaces CloudWatch agent (custom
-  namespace). Revisit once we can read those metrics, or drive it from bundle/compute-type signals.
+- **CORRECTED & SHIPPED:** `recommend_bundle_rightsizing` was previously deferred on the
+  (incorrect) assumption that `AWS/WorkSpaces` doesn't publish CPU/memory. It does — the namespace
+  natively emits `CPUUsage`, `MemoryUsage`, `GPUUsage`, `FramesPerSecond`, disk usage, latency,
+  uptime, etc., keyed by `WorkspaceId`, with **no CloudWatch agent required** (verified against a
+  live account). `get_workspace_performance` and `recommend_bundle_rightsizing` now ship on these
+  native metrics (Tier 0).
 - Cost tools: Cost Explorer (`ce`) only for v1, or add CUR for finer granularity later?
 - Resource-tag / directory-scoped IAM conditions — which services support them well enough to
   recommend by default.
