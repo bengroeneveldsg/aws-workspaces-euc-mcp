@@ -7,12 +7,16 @@ default install needs only **Tier 0**. Grant the smallest tier that covers the t
 |------|------|--------|----------|
 | 0 | [`tier0-diagnostics.json`](tier0-diagnostics.json) | Inventory, troubleshooting, diagnostics (read-only) | No |
 | 1 | [`tier1-cost.json`](tier1-cost.json) | Cost & utilization optimization (adds Cost Explorer / Pricing) | No |
-| 2 | [`tier2-lifecycle.json`](tier2-lifecycle.json) | Lifecycle ops: start/stop/reboot + modify running mode | Yes |
-| 3 | _planned_ | Destructive ops (terminate/rebuild/restore) | Yes (irreversible) |
+| 2 | [`tier2-lifecycle.json`](tier2-lifecycle.json) | Lifecycle ops: start/stop/reboot + modify running mode + Pools/fleet capacity | Yes |
+| 3 | [`tier3-destructive.json`](tier3-destructive.json) | Destructive ops (terminate/rebuild/restore) | Yes (irreversible) |
 
 > Tier 2 only grants effect when the server is also launched with `--enable-writes`. Even then,
 > mutations are dry-run unless the caller passes `confirm=true`, and bulk actions are capped by
 > `--max-bulk-targets`.
+>
+> Tier 3 additionally requires `--enable-destructive`, and each execution needs `confirm=true`
+> **plus** an exact typed acknowledgement phrase (e.g. `acknowledge="TERMINATE"`). Grant Tier 3
+> only to identities that truly need to delete/rebuild desktops.
 
 ## Notes
 

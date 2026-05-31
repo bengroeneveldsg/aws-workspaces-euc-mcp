@@ -13,7 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from . import consts
 from .clients import ClientFactory
-from .tools import cost, diagnostics, inventory, lifecycle, reporting
+from .tools import cost, destructive, diagnostics, inventory, lifecycle, reporting
 
 
 def create_server(
@@ -46,6 +46,13 @@ def create_server(
             max_bulk_targets=max_bulk_targets,
             enable_destructive=enable_destructive,
         )
+
+        if enable_destructive:
+            logger.warning(
+                "Destructive tools enabled (Tier 3): terminate/rebuild/restore. These require "
+                "confirm=true AND an exact acknowledgement phrase to execute."
+            )
+            destructive.register(mcp, factory, max_bulk_targets=max_bulk_targets)
 
     return mcp
 

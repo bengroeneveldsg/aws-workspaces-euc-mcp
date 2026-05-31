@@ -233,6 +233,10 @@ class WriteOutcome(BaseModel):
         description="False when the action was refused for being too large."
     )
     plan: str = Field(description="Human-readable description of what would happen / happened.")
+    acknowledgement_required: str | None = Field(
+        default=None,
+        description="For destructive actions: the exact phrase the caller must pass to proceed.",
+    )
     results: list[TargetResult] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

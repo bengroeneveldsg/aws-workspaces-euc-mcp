@@ -58,8 +58,20 @@ Registered **only** when launched with `--enable-writes`, and need the **Tier 2*
 | `start_application_fleet` / `stop_application_fleet` | Power a WorkSpaces Applications fleet on/off. |
 | `update_application_fleet_capacity` | Set a fleet's desired instance capacity. |
 
-Destructive operations (terminate/rebuild/restore) are **not** included; they are reserved for a
-separately-gated `--enable-destructive` module. See [`DESIGN.md`](DESIGN.md).
+### Destructive tools — double opt-in, typed acknowledgement (Phase 3, Tier 3)
+
+Registered **only** with both `--enable-writes` **and** `--enable-destructive`, and need the
+**Tier 3** policy ([`iam/tier3-destructive.json`](iam/tier3-destructive.json)). On top of the
+dry-run default and blast-radius cap, each execution requires an **exact typed acknowledgement**.
+
+| Tool | Description | Acknowledge |
+|------|-------------|-------------|
+| `terminate_workspaces` | **Permanently delete** desktops (irreversible). | `"TERMINATE"` |
+| `rebuild_workspaces` | Reset root volume to bundle; user volume from last snapshot. | `"REBUILD"` |
+| `restore_workspace` | Restore a desktop from its last snapshot. | `"RESTORE"` |
+
+Example: `terminate_workspaces(workspace_ids=[...], confirm=true, acknowledge="TERMINATE")`.
+Without the exact phrase the call is **refused** and nothing changes. See [`DESIGN.md`](DESIGN.md).
 
 ## Requirements
 
