@@ -11,16 +11,13 @@ signal is recorded and the diagnosis proceeds with what it could gather.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-
-from botocore.exceptions import BotoCoreError, ClientError
-from loguru import logger
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import Diagnosis, DirectoryHealthReport, Finding, ServiceError
+from ._common import try_call
 
 # WorkSpace states that indicate the desktop itself is broken.
 _UNHEALTHY_WORKSPACE_STATES = {"ERROR", "UNHEALTHY", "IMPAIRED"}
@@ -29,22 +26,6 @@ _STOPPED_WORKSPACE_STATES = {"STOPPED", "SUSPENDED"}
 
 _SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
 _RANK_STATUS = {0: "healthy", 1: "degraded", 2: "unhealthy"}
-
-
-def _try(
-    errors: list[ServiceError],
-    service: str,
-    operation: str,
-    fn: Callable[[], Any],
-    default: Any = None,
-) -> Any:
-    """Run an AWS call, recording (not raising) errors so diagnosis can continue."""
-    try:
-        return fn()
-    except (ClientError, BotoCoreError) as exc:
-        logger.warning("Diagnostic step failed: {} {} -> {}", service, operation, exc)
-        errors.append(ServiceError(service=service, operation=operation, message=str(exc)))
-        return default
 
 
 def _overall_status(findings: list[Finding]) -> str:
@@ -113,7 +94,7 @@ def diagnose_workspace_connectivity_core(
 
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
 
-    described = _try(
+    described = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_PERSONAL,
         "DescribeWorkspaces",
@@ -178,7 +159,7 @@ def diagnose_workspace_connectivity_core(
             )
         )
 
-    conn = _try(
+    conn = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_PERSONAL,
         "DescribeWorkspacesConnectionStatus",
@@ -213,7 +194,7 @@ def diagnose_workspace_connectivity_core(
         )
 
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
-    failures = _try(
+    failures = try_call(
         errors,
         "Amazon CloudWatch",
         "GetMetricData",
@@ -225,7 +206,7 @@ def diagnose_workspace_connectivity_core(
             lookback_hours,
         ),
     )
-    attempts = _try(
+    attempts = try_call(
         errors,
         "Amazon CloudWatch",
         "GetMetricData",
@@ -281,7 +262,7 @@ def _diagnose_directory_into(
 ) -> None:
     """Append directory-health findings (registration + Directory Service stage)."""
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
-    reg = _try(
+    reg = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_PERSONAL,
         "DescribeWorkspaceDirectories",
@@ -304,7 +285,7 @@ def _diagnose_directory_into(
                 )
             )
 
-    stage_resp = _try(
+    stage_resp = try_call(
         errors,
         "AWS Directory Service",
         "DescribeDirectories",
@@ -350,7 +331,7 @@ def check_directory_health_core(
     if directory_id:
         directory_ids = [directory_id]
     else:
-        listed = _try(
+        listed = try_call(
             errors,
             consts.PRODUCT_WORKSPACES_PERSONAL,
             "DescribeWorkspaceDirectories",
@@ -399,7 +380,7 @@ def diagnose_application_fleet_core(
     signals: dict[str, object] = {}
 
     appstream = factory.client(consts.APPSTREAM_API, region=region)
-    described = _try(
+    described = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_APPLICATIONS,
         "DescribeFleets",
@@ -491,7 +472,7 @@ def diagnose_application_fleet_core(
             )
         )
 
-    scaling = _try(
+    scaling = try_call(
         errors,
         "Application Auto Scaling",
         "DescribeScalingActivities",
@@ -518,7 +499,7 @@ def diagnose_application_fleet_core(
         )
 
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
-    insufficient = _try(
+    insufficient = try_call(
         errors,
         "Amazon CloudWatch",
         "GetMetricData",

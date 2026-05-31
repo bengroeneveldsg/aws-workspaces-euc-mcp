@@ -13,12 +13,8 @@ is connected during a period); no CloudWatch agent is required.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
-
-from botocore.exceptions import BotoCoreError, ClientError
-from loguru import logger
 
 from .. import consts
 from ..clients import ClientFactory
@@ -31,33 +27,7 @@ from ..models import (
     UtilizationReport,
     WorkspaceUtilization,
 )
-
-
-def _try(
-    errors: list[ServiceError],
-    service: str,
-    operation: str,
-    fn: Callable[[], Any],
-    default: Any = None,
-) -> Any:
-    try:
-        return fn()
-    except (ClientError, BotoCoreError) as exc:
-        logger.warning("Cost step failed: {} {} -> {}", service, operation, exc)
-        errors.append(ServiceError(service=service, operation=operation, message=str(exc)))
-        return default
-
-
-def _all_workspaces(workspaces: Any) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    token: str | None = None
-    while True:
-        params = {"NextToken": token} if token else {}
-        resp = workspaces.describe_workspaces(**params)
-        items.extend(resp.get("Workspaces", []))
-        token = resp.get("NextToken")
-        if not token:
-            return items
+from ._common import paginate, try_call
 
 
 def _daily_connected_values(cloudwatch: Any, workspace_id: str, lookback_days: int) -> list[float]:
@@ -103,11 +73,11 @@ def _collect_utilization(
     workspaces_client = factory.client(consts.WORKSPACES_API, region=region)
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
 
-    workspaces = _try(
+    workspaces = try_call(
         errors,
         consts.PRODUCT_WORKSPACES_PERSONAL,
         "DescribeWorkspaces",
-        lambda: _all_workspaces(workspaces_client),
+        lambda: paginate(workspaces_client.describe_workspaces, "Workspaces"),
         default=[],
     )
 
@@ -116,7 +86,7 @@ def _collect_utilization(
     for ws in workspaces or []:
         wid = ws.get("WorkspaceId", "")
         running_mode = ws.get("WorkspaceProperties", {}).get("RunningMode")
-        values = _try(
+        values = try_call(
             errors,
             "Amazon CloudWatch",
             "GetMetricData",
@@ -218,7 +188,7 @@ def get_euc_cost_summary_core(
     start_date = end_date - timedelta(days=lookback_days)
     start, end = start_date.isoformat(), end_date.isoformat()
 
-    response = _try(
+    response = try_call(
         errors,
         "AWS Cost Explorer",
         "GetCostAndUsage",

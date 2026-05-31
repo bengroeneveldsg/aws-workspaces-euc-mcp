@@ -125,6 +125,8 @@ def test_paginate_follows_tokens():
         calls["n"] += 1
         return page
 
-    items = inventory._paginate(op, "Workspaces")
+    from workspaces_euc_mcp_server.tools._common import paginate
+
+    items = paginate(op, "Workspaces")
     assert len(items) == 2
     assert calls["n"] == 2

@@ -1,8 +1,15 @@
 # Amazon WorkSpaces EUC Admin MCP Server — Design & Build Plan
 
-> Status: scoping/design (2026-05-31). An MCP server giving administrators AI-assisted
-> troubleshooting, cost/utilization optimization, and (later, guarded) lifecycle management
+> Status: **Phases 0–3 shipped** (2026-05-31). An MCP server giving administrators AI-assisted
+> inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
+>
+> **Shipped:** 10 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
+> guards. All four IAM policy tiers ship in `iam/`. CI (ruff/format/bandit/pytest on Py 3.11–3.13)
+> is green. See `README.md` for the live tool catalog and `CHANGELOG.md` for per-phase detail.
+> **Still deferred:** `recommend_bundle_rightsizing` (needs the WorkSpaces CloudWatch agent for
+> CPU/memory) — see §10.
 
 ## 1. Principles
 

@@ -159,6 +159,37 @@ Attach [`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json) to the identit
 as. Tiers are additive and documented in [`iam/README.md`](iam/README.md). All actions are
 captured by AWS CloudTrail.
 
+## Example admin questions
+
+Once the server is connected to an MCP client, you can ask in natural language and the client will
+pick the right tool. A few examples:
+
+| You ask… | Tool the client uses |
+|----------|----------------------|
+| "What WorkSpaces resources do I have in us-east-1?" | `get_euc_inventory_summary` |
+| "User X can't connect to ws-abc123 — why?" | `diagnose_workspace_connectivity` |
+| "Is the marketing AppStream fleet healthy / out of capacity?" | `diagnose_application_fleet` |
+| "Which desktops are idle or unused this fortnight?" | `analyze_workspace_utilization` / `list_unused_resources` |
+| "Where can I cut WorkSpaces cost?" | `recommend_running_mode` + `get_euc_cost_summary` |
+| "Any desktops without volume encryption or IP restrictions?" | `audit_security_posture` |
+| "Switch ws-abc123 to AutoStop." | `modify_workspace_running_mode` (dry-run first) |
+| "Reboot these three stuck desktops." | `reboot_workspaces` (dry-run, then `confirm=true`) |
+
+**Write/destructive tools are off unless enabled.** Mutations show a dry-run plan first; to execute
+you pass `confirm=true` (and, for destructive ops, the exact acknowledge phrase). For example, a
+full destructive run looks like:
+
+```text
+terminate_workspaces(workspace_ids=["ws-abc123"], confirm=true, acknowledge="TERMINATE")
+```
+
+Launch with writes/destructive enabled:
+
+```bash
+workspaces-euc-mcp-server --enable-writes                      # Tier 2 power/capacity tools
+workspaces-euc-mcp-server --enable-writes --enable-destructive # + Tier 3 terminate/rebuild/restore
+```
+
 ## Development
 
 ```bash
