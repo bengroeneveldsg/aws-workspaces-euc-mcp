@@ -1,0 +1,74 @@
+[project]
+name = "workspaces-euc-mcp-server"
+version = "0.0.1"
+description = "MCP server for administering the Amazon WorkSpaces family of End User Computing services (Personal, Pools, Applications, Secure Browser, Core)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+authors = [{ name = "bengr" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "aws",
+    "amazon-workspaces",
+    "end-user-computing",
+    "euc",
+    "appstream",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+    "mcp>=1.2.0",
+    "boto3>=1.34.0",
+    "pydantic>=2.6.0",
+    "loguru>=0.7.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5",
+    "pyright>=1.1",
+    "bandit>=1.7",
+    "pre-commit>=3.6",
+]
+
+[project.urls]
+Homepage = "https://github.com/bengr/workspaces-euc-mcp"
+Repository = "https://github.com/bengr/workspaces-euc-mcp"
+Issues = "https://github.com/bengr/workspaces-euc-mcp/issues"
+
+[project.scripts]
+workspaces-euc-mcp-server = "workspaces_euc_mcp_server.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["workspaces_euc_mcp_server"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B"]
+
+[tool.pyright]
+include = ["workspaces_euc_mcp_server"]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+
+[tool.bandit]
+exclude_dirs = ["tests"]

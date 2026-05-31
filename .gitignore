@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+
+# OS / editor / tooling
+.DS_Store
+.idea/
+.vscode/
+.claude/
+
+# AWS / secrets — never commit credentials
+.aws/
+*.pem
+.env
