@@ -25,3 +25,9 @@ env/
 .aws/
 *.pem
 .env
+
+# Generated, account-specific report artifacts — these contain tenant data
+# (real WorkSpace IDs, metrics, costs) and must never be committed.
+*-perf.html
+ws-*.html
+/reports/
