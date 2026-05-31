@@ -40,6 +40,8 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |
 | `get_workspace_performance` | Native CPU / memory / disk / GPU / latency / uptime metrics per desktop from `AWS/WorkSpaces` — no CloudWatch agent (Tier 0). |
+| `get_workspace_connection_history` | A desktop's connection/session **history** (UserConnected + connection attempts/failures) over a window, with a summary (Tier 0). |
+| `get_pool_session_history` | A WorkSpaces Pool's user-**session history** (active/available/utilization capacity time-series), flags idle pool capacity (Tier 0). |
 | `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
 | `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
 | `generate_inventory_report` | Detailed per-resource inventory (desktops, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |

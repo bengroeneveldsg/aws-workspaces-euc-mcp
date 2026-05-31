@@ -177,6 +177,63 @@ def test_fleet_usage_handles_stopped_fleet():
     assert "stopped" in (usage.summary or "").lower()
 
 
+def test_workspace_connection_history_counts_active_buckets():
+    cw = _cloudwatch_with_timestamps(
+        {
+            "UserConnected": {
+                "Average": {"Timestamps": ["d1", "d2", "d3", "d4"], "Values": [1.0, 0.0, 1.0, 0.0]},
+                "Maximum": {"Values": [1.0, 0.0, 1.0, 0.0]},
+            },
+        }
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+
+    hist = performance.get_workspace_connection_history_core(
+        factory, "ws-1", "us-east-1", lookback_days=4
+    )
+
+    assert hist.target_type == consts.PRODUCT_WORKSPACES_PERSONAL
+    assert len(hist.metrics["UserConnected"].series) == 4
+    assert "Connected in 2 of 4" in (hist.summary or "")
+
+
+def test_workspace_connection_history_flags_unused():
+    cw = _cloudwatch_with_timestamps(
+        {
+            "UserConnected": {
+                "Average": {"Timestamps": ["d1", "d2"], "Values": [0.0, 0.0]},
+                "Maximum": {"Values": [0.0, 0.0]},
+            },
+        }
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+
+    hist = performance.get_workspace_connection_history_core(factory, "ws-idle", "us-east-1", 2)
+
+    assert "unused" in (hist.summary or "").lower()
+
+
+def test_pool_session_history_flags_idle_capacity():
+    cw = _cloudwatch_with_timestamps(
+        {
+            "ActiveUserSessionCapacity": {
+                "Average": {"Timestamps": ["d1", "d2"], "Values": [0.0, 0.0]},
+                "Maximum": {"Values": [0.0, 0.0]},
+            },
+            "ActualUserSessionCapacity": {
+                "Average": {"Timestamps": ["d1", "d2"], "Values": [5.0, 5.0]},
+                "Maximum": {"Values": [5.0, 5.0]},
+            },
+        }
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+
+    hist = performance.get_pool_session_history_core(factory, "wspool-1", "us-east-1", 2)
+
+    assert hist.target_type == consts.PRODUCT_WORKSPACES_POOLS
+    assert "idle pool capacity" in (hist.summary or "")
+
+
 def test_rightsizing_skips_graphics_and_no_data():
     workspaces = _workspaces_client(
         [

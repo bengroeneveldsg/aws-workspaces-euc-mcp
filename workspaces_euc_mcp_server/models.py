@@ -142,6 +142,18 @@ class FleetUsage(BaseModel):
     errors: list[ServiceError] = Field(default_factory=list)
 
 
+class UsageHistory(BaseModel):
+    """Generic metric time-series history for a single EUC resource over a window."""
+
+    target_type: str = Field(description="Resource kind, e.g. the current official product name.")
+    target_id: str
+    lookback_days: int
+    period_hours: int
+    metrics: dict[str, FleetMetricSeries] = Field(default_factory=dict)
+    summary: str | None = None
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
 class WorkspaceUtilization(BaseModel):
     """Utilization classification for a single WorkSpaces Personal desktop."""
 

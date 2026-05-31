@@ -94,6 +94,29 @@ APPSTREAM_FLEET_METRICS = [
     ("PendingCapacity", "Count"),
 ]
 
+# WorkSpaces Personal connection/session metrics (AWS/WorkSpaces, dimension WorkspaceId). Idle
+# desktops typically publish only UserConnected; the rest emit when there are connection attempts.
+WORKSPACES_CONNECTION_METRICS = [
+    ("UserConnected", "Count"),
+    ("ConnectionAttempt", "Count"),
+    ("ConnectionSuccess", "Count"),
+    ("ConnectionFailure", "Count"),
+    ("SessionLaunchTime", "Milliseconds"),
+    ("InSessionLatency", "Milliseconds"),
+]
+
+# WorkSpaces Pools user-session metrics. NOTE the dimension name is literally "WorkSpaces pool ID"
+# (with spaces), not PoolId — verified against a live account.
+WORKSPACES_POOL_DIMENSION = "WorkSpaces pool ID"
+WORKSPACES_POOL_SESSION_METRICS = [
+    ("ActiveUserSessionCapacity", "Count"),
+    ("ActualUserSessionCapacity", "Count"),
+    ("AvailableUserSessionCapacity", "Count"),
+    ("DesiredUserSessionCapacity", "Count"),
+    ("PendingUserSessionCapacity", "Count"),
+    ("UserSessionsCapacityUtilization", "Percent"),
+]
+
 SERVER_INSTRUCTIONS = """\
 Administrator-focused MCP server for the Amazon WorkSpaces End User Computing portfolio:
 WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, WorkSpaces Secure Browser, and
