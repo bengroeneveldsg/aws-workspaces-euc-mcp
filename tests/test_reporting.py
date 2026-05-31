@@ -55,6 +55,8 @@ def test_generate_inventory_report_sections():
         describe_fleets=lambda **_: {
             "Fleets": [{"Name": "f1", "State": "RUNNING", "InstanceType": "stream.standard.medium"}]
         },
+        describe_stacks=lambda **_: {"Stacks": [{"Name": "stack-1", "DisplayName": "Stack One"}]},
+        list_associated_fleets=lambda **_: {"Names": ["f1"]},
     )
     secure_browser = types.SimpleNamespace(
         list_portals=lambda **_: {
@@ -71,12 +73,16 @@ def test_generate_inventory_report_sections():
 
     report = reporting.generate_inventory_report_core(factory, "us-east-1")
 
-    assert report.total_resources == 4
+    assert report.total_resources == 5  # personal, pool, fleet, stack, portal
     by_service = {s.service: s for s in report.sections}
     personal = by_service[consts.PRODUCT_WORKSPACES_PERSONAL].resources[0]
     assert personal.id == "ws-1"
     assert personal.attributes["bundle_id"] == "wsb-1"
     assert by_service[consts.PRODUCT_SECURE_BROWSER].resources[0].id == "arn:portal/1"
+    # The Applications stack section lists its associated fleets.
+    stack_sections = [s for s in report.sections if s.resource_type == "Stack"]
+    assert stack_sections and stack_sections[0].resources[0].id == "stack-1"
+    assert stack_sections[0].resources[0].attributes["associated_fleets"] == ["f1"]
 
 
 def test_audit_flags_unencrypted_and_missing_ip_groups():

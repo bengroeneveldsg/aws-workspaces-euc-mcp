@@ -21,7 +21,8 @@
       "Action": [
         "appstream:DescribeFleets",
         "appstream:DescribeStacks",
-        "appstream:DescribeFleetAssociations",
+        "appstream:ListAssociatedFleets",
+        "appstream:ListAssociatedStacks",
         "appstream:DescribeSessions"
       ],
       "Resource": "*"

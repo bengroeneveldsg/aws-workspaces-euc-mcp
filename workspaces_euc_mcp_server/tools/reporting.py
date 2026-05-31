@@ -112,6 +112,43 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
         )
     )
 
+    stacks = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_APPLICATIONS,
+        "DescribeStacks",
+        lambda: paginate(appstream.describe_stacks, "Stacks"),
+        default=[],
+    )
+    stack_records: list[ResourceRecord] = []
+    for s in stacks or []:
+        stack_name = s.get("Name", "")
+        associated = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "ListAssociatedFleets",
+            lambda stack_name=stack_name: paginate(
+                appstream.list_associated_fleets, "Names", StackName=stack_name
+            ),
+            default=[],
+        )
+        stack_records.append(
+            ResourceRecord(
+                id=stack_name,
+                name=s.get("DisplayName"),
+                attributes={
+                    "description": s.get("Description"),
+                    "associated_fleets": associated or [],
+                },
+            )
+        )
+    sections.append(
+        InventoryReportSection(
+            service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            resource_type="Stack",
+            resources=stack_records,
+        )
+    )
+
     portals = try_call(
         errors,
         consts.PRODUCT_SECURE_BROWSER,
