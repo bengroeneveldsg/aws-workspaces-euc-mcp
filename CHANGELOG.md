@@ -6,6 +6,10 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Multi-account / MSP support: `--assume-role-arn` (+ optional `--external-id`) transparently
+  `sts:AssumeRole`s into another account, with auto-refreshing credentials and no tool-code
+  changes. The launching identity needs `sts:AssumeRole` on the target role; the role needs the
+  matching tier policy.
 - Estimated monthly $ savings on recommendations, via the AWS Price List API (new
   `tools/pricing.py`, needs `pricing:GetProducts` / Tier 1): `recommend_running_mode` now fills
   `estimated_monthly_savings_usd` for AlwaysOn→AutoStop candidates (AlwaysOn monthly − AutoStop

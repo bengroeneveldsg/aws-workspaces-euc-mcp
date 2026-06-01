@@ -160,6 +160,8 @@ Running from a source checkout instead of `uvx`:
 |------|---------|---------|
 | `--region` | session/profile region | Target AWS region. |
 | `--profile` | default chain | AWS named profile. |
+| `--assume-role-arn` | none | Cross-account role to assume (multi-account / MSP). |
+| `--external-id` | none | ExternalId for the assumed role, if required. |
 | `--enable-writes` | off | Register Phase 2 lifecycle (write) tools. |
 | `--enable-destructive` | off | Allow terminate/rebuild/restore (requires `--enable-writes`). |
 | `--max-bulk-targets` | 25 | Blast-radius cap for bulk mutations (Phase 2). |
@@ -167,10 +169,27 @@ Running from a source checkout instead of `uvx`:
 The server starts **read-only**; mutating tools require both the launch flag **and** the matching
 IAM tier.
 
+## Multi-account / MSP
+
+To manage a **different** account from the one your credentials live in, launch with
+`--assume-role-arn` (and `--external-id` if the role requires it):
+
+```bash
+workspaces-euc-mcp-server --region ap-southeast-1 \
+  --assume-role-arn arn:aws:iam::222222222222:role/EucReadOnly --external-id my-ext-id
+```
+
+The server transparently `sts:AssumeRole`s into the target account and auto-refreshes the
+credentials. Requirements:
+- The launching identity needs `sts:AssumeRole` on the target role.
+- The **target role** needs the matching tier policy from [`iam/`](iam/) (Tier 0 for read-only).
+- To manage many accounts, run one instance per target role (or point separate MCP-client entries
+  at different `--assume-role-arn` values).
+
 ## IAM
 
 Attach [`iam/tier0-diagnostics.json`](iam/tier0-diagnostics.json) to the identity the server runs
-as. Tiers are additive and documented in [`iam/README.md`](iam/README.md). All actions are
+as (or to the role you assume with `--assume-role-arn`). Tiers are additive and documented in [`iam/README.md`](iam/README.md). All actions are
 captured by AWS CloudTrail.
 
 ## Example admin questions
