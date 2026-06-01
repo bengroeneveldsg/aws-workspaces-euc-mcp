@@ -284,14 +284,84 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
                 )
             )
 
-    if not findings and (
-        resources_checked.get("workspaces") or resources_checked.get("directories")
-    ):
+    # Secure Browser portals: flag relaxed data-egress controls (download/copy/print enabled).
+    secure = factory.client(consts.SECURE_BROWSER_API, region=region)
+    portals = try_call(
+        errors,
+        consts.PRODUCT_SECURE_BROWSER,
+        "ListPortals",
+        lambda: paginate(
+            secure.list_portals, "portals", pagination_in="nextToken", pagination_out="nextToken"
+        ),
+        default=[],
+    )
+    resources_checked["portals"] = len(portals or [])
+    for p in portals or []:
+        arn = p.get("portalArn", "")
+        us_arn = p.get("userSettingsArn")
+        if not us_arn:
+            continue
+        us = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "GetUserSettings",
+            lambda us_arn=us_arn: secure.get_user_settings(userSettingsArn=us_arn).get(
+                "userSettings", {}
+            ),
+            default={},
+        )
+        enabled = [
+            flag for flag in consts.SECURE_BROWSER_EGRESS_FLAGS if (us or {}).get(flag) == "Enabled"
+        ]
+        if enabled:
+            findings.append(
+                Finding(
+                    severity="warning",
+                    title=f"Secure Browser portal allows data egress: {', '.join(enabled)}",
+                    detail=f"Portal {p.get('displayName') or arn} permits {', '.join(enabled)} — "
+                    "content can leave the managed browser session.",
+                    recommendation="Disable unneeded download/copy/print in the user settings.",
+                    resource_id=arn,
+                )
+            )
+
+    # Applications stacks: flag relaxed UserSettings that permit local data egress.
+    appstream = factory.client(consts.APPSTREAM_API, region=region)
+    stacks = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_APPLICATIONS,
+        "DescribeStacks",
+        lambda: paginate(appstream.describe_stacks, "Stacks"),
+        default=[],
+    )
+    resources_checked["stacks"] = len(stacks or [])
+    egress_actions = {"CLIPBOARD_COPY_TO_LOCAL_DEVICE", "FILE_DOWNLOAD", "PRINTING_TO_LOCAL_DEVICE"}
+    for s in stacks or []:
+        name = s.get("Name", "")
+        enabled = [
+            u.get("Action")
+            for u in (s.get("UserSettings") or [])
+            if u.get("Action") in egress_actions and u.get("Permission") == "ENABLED"
+        ]
+        if enabled:
+            findings.append(
+                Finding(
+                    severity="warning",
+                    title=f"WorkSpaces Applications stack allows data egress: {', '.join(enabled)}",
+                    detail=f"Stack {name} permits {', '.join(enabled)} to the local device.",
+                    recommendation="Disable unneeded copy-to-local/file-download/local-printing "
+                    "in the stack user settings.",
+                    resource_id=name,
+                )
+            )
+
+    if not findings and any(resources_checked.values()):
         findings.append(
             Finding(
                 severity="info",
                 title="No posture issues found in the checks performed",
-                detail="Checked WorkSpace volume encryption and directory IP access groups.",
+                detail="Checked WorkSpace volume encryption, directory IP access groups, and "
+                "Secure Browser / Applications data-egress controls.",
             )
         )
 
