@@ -2,6 +2,14 @@
 
 [![CI](https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp/actions/workflows/ci.yml)
 
+> **Disclaimer:** This project is not an official AWS product, service, or solution, and is not
+> affiliated with or endorsed by Amazon Web Services. It is an independent, community example
+> implementation intended to demonstrate what is possible when combining the Amazon WorkSpaces End
+> User Computing APIs with the Model Context Protocol. It is provided as a starting point to learn
+> from, adapt, and iterate on — not as a supported or production-certified offering. Use it at your
+> own discretion and always validate it against your organisation's security, compliance, and
+> operational requirements before deploying to production.
+
 An [MCP](https://modelcontextprotocol.io) server that gives administrators AI-assisted
 **inventory, troubleshooting, and cost/utilization optimization** across the Amazon WorkSpaces
 End User Computing (EUC) portfolio:
