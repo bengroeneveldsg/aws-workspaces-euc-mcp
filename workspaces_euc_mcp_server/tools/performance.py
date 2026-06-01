@@ -28,6 +28,7 @@ from ..models import (
     UsagePoint,
     WorkspacePerformance,
 )
+from . import pricing
 from ._common import paginate, try_call
 
 # Right-sizing thresholds on window peak (%). Conservative: only suggest a downsize when there is
@@ -197,7 +198,8 @@ def recommend_bundle_rightsizing_core(
     skipped_no_data = 0
     for ws in workspaces or []:
         wid = ws.get("WorkspaceId", "")
-        compute_type = ws.get("WorkspaceProperties", {}).get("ComputeTypeName")
+        props = ws.get("WorkspaceProperties", {})
+        compute_type = props.get("ComputeTypeName")
         metrics = try_call(
             errors,
             "Amazon CloudWatch",
@@ -219,11 +221,33 @@ def recommend_bundle_rightsizing_core(
             continue
         rec = _rightsizing_recommendation(wid, compute_type, cpu, mem, lookback_days)
         if rec:
+            # Best-effort $ estimate for AlwaysOn desktops: monthly compute-tier difference.
+            if props.get("RunningMode") == "ALWAYS_ON":
+                cur = pricing.get_workspace_prices(
+                    factory,
+                    region,
+                    props.get("OperatingSystemName"),
+                    rec.current,
+                    props.get("RootVolumeSizeGib"),
+                    props.get("UserVolumeSizeGib"),
+                )
+                new = pricing.get_workspace_prices(
+                    factory,
+                    region,
+                    props.get("OperatingSystemName"),
+                    rec.recommended,
+                    props.get("RootVolumeSizeGib"),
+                    props.get("UserVolumeSizeGib"),
+                )
+                if cur and new and cur.alwayson_monthly and new.alwayson_monthly:
+                    diff = round(cur.alwayson_monthly - new.alwayson_monthly, 2)
+                    rec.estimated_monthly_savings_usd = diff if diff > 0 else None
             recommendations.append(rec)
 
     notes = [
-        "Based on native AWS/WorkSpaces CPUUsage/MemoryUsage (window peak). Savings are not "
-        "estimated (they need per-bundle pricing); this identifies candidates and direction.",
+        "Based on native AWS/WorkSpaces CPUUsage/MemoryUsage (window peak). "
+        "estimated_monthly_savings_usd is a best-effort AlwaysOn monthly compute-tier difference "
+        "(Price List, Included license); null for AutoStop desktops or unmatched prices.",
         "Graphics compute families are excluded from automatic suggestions.",
     ]
     if skipped_no_data:

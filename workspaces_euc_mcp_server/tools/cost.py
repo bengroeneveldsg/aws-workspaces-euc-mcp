@@ -27,6 +27,7 @@ from ..models import (
     UtilizationReport,
     WorkspaceUtilization,
 )
+from . import pricing
 from ._common import paginate, try_call
 
 
@@ -85,7 +86,7 @@ def _collect_utilization(
     items: list[WorkspaceUtilization] = []
     for ws in workspaces or []:
         wid = ws.get("WorkspaceId", "")
-        running_mode = ws.get("WorkspaceProperties", {}).get("RunningMode")
+        props = ws.get("WorkspaceProperties", {})
         values = try_call(
             errors,
             "Amazon CloudWatch",
@@ -96,10 +97,14 @@ def _collect_utilization(
         items.append(
             WorkspaceUtilization(
                 workspace_id=wid,
-                running_mode=running_mode,
+                running_mode=props.get("RunningMode"),
                 lookback_days=lookback_days,
                 active_days=active_days,
                 classification=_classify(active_days, lookback_days, idle_threshold),
+                compute_type=props.get("ComputeTypeName"),
+                operating_system=props.get("OperatingSystemName"),
+                root_volume_gib=props.get("RootVolumeSizeGib"),
+                user_volume_gib=props.get("UserVolumeSizeGib"),
             )
         )
     return items, errors
@@ -133,6 +138,17 @@ def recommend_running_mode_core(
     recommendations: list[Recommendation] = []
     for item in items:
         if item.running_mode == "ALWAYS_ON" and item.classification in {"unused", "idle"}:
+            prices = pricing.get_workspace_prices(
+                factory,
+                region,
+                item.operating_system,
+                item.compute_type,
+                item.root_volume_gib,
+                item.user_volume_gib,
+            )
+            savings = pricing.estimate_alwayson_to_autostop_savings(
+                prices, item.active_days, lookback_days
+            )
             recommendations.append(
                 Recommendation(
                     target_id=item.workspace_id,
@@ -144,6 +160,7 @@ def recommend_running_mode_core(
                         f"({item.classification}); AlwaysOn bills the full month regardless of "
                         "use, so AutoStop typically costs less at low usage."
                     ),
+                    estimated_monthly_savings_usd=savings,
                     confidence="high" if item.classification == "unused" else "medium",
                 )
             )
@@ -171,8 +188,9 @@ def recommend_running_mode_core(
         recommendations=recommendations,
         errors=errors,
         notes=[
-            "Savings are not estimated here because exact figures require the per-bundle AlwaysOn "
-            "and AutoStop rates; this tool identifies candidates and direction only."
+            "estimated_monthly_savings_usd is a best-effort Price List estimate (Included license, "
+            "on-demand, matched on compute type / OS / volume sizes); it is null when prices can't "
+            "be matched or pricing:GetProducts is not permitted. Assumes ~8h per active day."
         ],
     )
 

@@ -41,7 +41,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `get_application_fleet_usage` | A WorkSpaces Applications fleet's **usage history** — AWS/AppStream capacity/utilization time-series over a window, with a plain-language summary (e.g. idle running capacity) (Tier 0). |
 | `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
-| `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates (Tier 1). |
+| `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates, with an **estimated $/mo saving** where the bundle price can be matched (Tier 1). |
 | `get_workspace_performance` | Native CPU / memory / disk / GPU / latency / uptime metrics per desktop from `AWS/WorkSpaces` — no CloudWatch agent (Tier 0). |
 | `get_workspace_connection_history` | A desktop's connection/session **history** (UserConnected + connection attempts/failures) over a window, with a summary (Tier 0). |
 | `get_pool_session_history` | A WorkSpaces Pool's user-**session history** (active/available/utilization capacity time-series), flags idle pool capacity (Tier 0). |

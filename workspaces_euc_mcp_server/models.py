@@ -181,6 +181,11 @@ class WorkspaceUtilization(BaseModel):
         default=None, description="Days with at least one user connection in the window."
     )
     classification: str = Field(description="unused, idle, active, or unknown.")
+    # Inputs for pricing/savings estimates (not always populated).
+    compute_type: str | None = None
+    operating_system: str | None = None
+    root_volume_gib: int | None = None
+    user_volume_gib: int | None = None
 
 
 class UtilizationReport(BaseModel):
