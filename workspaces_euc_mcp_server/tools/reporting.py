@@ -27,6 +27,23 @@ from . import cost
 from ._common import paginate, try_call
 
 
+def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> ResourceRecord:
+    ec2_id = (instance.get("EC2ManagedInstance") or {}).get("InstanceId")
+    ec2 = ec2_by_id.get(ec2_id or "", {})
+    return ResourceRecord(
+        id=instance.get("WorkspaceInstanceId", ""),
+        state=instance.get("ProvisionState"),
+        attributes={
+            "ec2_instance_id": ec2_id,
+            "ec2_instance_type": ec2.get("InstanceType"),
+            "ec2_state": (ec2.get("State") or {}).get("Name"),
+            "ec2_launch_time": str(ec2.get("LaunchTime")) if ec2.get("LaunchTime") else None,
+            "ec2_private_ip": ec2.get("PrivateIpAddress"),
+            "ec2_platform": ec2.get("PlatformDetails"),
+        },
+    )
+
+
 def generate_inventory_report_core(factory: ClientFactory, region: str | None) -> InventoryReport:
     errors: list[ServiceError] = []
     sections: list[InventoryReportSection] = []
@@ -229,20 +246,30 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
         lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
         default=[],
     )
+    # Enrich with EC2 details (type/state/launch/IP) for the backing instances.
+    ec2_ids = [
+        eid
+        for i in (instances or [])
+        if (eid := (i.get("EC2ManagedInstance") or {}).get("InstanceId"))
+    ]
+    ec2_by_id: dict[str, dict] = {}
+    if ec2_ids:
+        ec2 = factory.client(consts.EC2_API, region=region)
+        reservations = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+            "DescribeInstances",
+            lambda: ec2.describe_instances(InstanceIds=ec2_ids).get("Reservations", []),
+            default=[],
+        )
+        for res in reservations or []:
+            for inst in res.get("Instances", []):
+                ec2_by_id[inst.get("InstanceId", "")] = inst
     sections.append(
         InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
             resource_type="ManagedInstance",
-            resources=[
-                ResourceRecord(
-                    id=i.get("WorkspaceInstanceId", ""),
-                    state=i.get("ProvisionState"),
-                    attributes={
-                        "ec2_instance_id": (i.get("EC2ManagedInstance") or {}).get("InstanceId")
-                    },
-                )
-                for i in (instances or [])
-            ],
+            resources=[_managed_instance_record(i, ec2_by_id) for i in (instances or [])],
         )
     )
 

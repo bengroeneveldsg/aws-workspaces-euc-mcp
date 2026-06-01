@@ -87,12 +87,30 @@ def test_generate_inventory_report_sections():
             ]
         },
     )
+    ec2 = types.SimpleNamespace(
+        describe_instances=lambda **_: {
+            "Reservations": [
+                {
+                    "Instances": [
+                        {
+                            "InstanceId": "i-abc",
+                            "InstanceType": "m7i-flex.large",
+                            "State": {"Name": "running"},
+                            "PrivateIpAddress": "10.0.0.9",
+                            "PlatformDetails": "Windows",
+                        }
+                    ]
+                }
+            ]
+        },
+    )
     factory = FakeFactory(
         {
             consts.WORKSPACES_API: workspaces,
             consts.APPSTREAM_API: appstream,
             consts.SECURE_BROWSER_API: secure_browser,
             consts.WORKSPACES_INSTANCES_API: instances,
+            consts.EC2_API: ec2,
         }
     )
 
@@ -103,6 +121,9 @@ def test_generate_inventory_report_sections():
     assert mi.id == "wsinst-1"
     assert mi.state == "ALLOCATED"
     assert mi.attributes["ec2_instance_id"] == "i-abc"
+    assert mi.attributes["ec2_instance_type"] == "m7i-flex.large"
+    assert mi.attributes["ec2_state"] == "running"
+    assert mi.attributes["ec2_platform"] == "Windows"
     by_service = {s.service: s for s in report.sections}
     personal = by_service[consts.PRODUCT_WORKSPACES_PERSONAL].resources[0]
     assert personal.id == "ws-1"
