@@ -185,6 +185,16 @@ deliberate act, and **IAM permissions alone are not enough**. A destructive call
 | 3 | **`confirm=true`** | The tool call | Every mutation is **dry-run by default** — it returns a plan and changes nothing. You must explicitly pass `confirm=true`. |
 | 4 | **Typed acknowledgement + blast-radius cap** | The tool call | Destructive ops also require the **exact** phrase (`acknowledge="TERMINATE"` / `"REBUILD"` / `"RESTORE"`) and must stay within `--max-bulk-targets`. Wrong phrase or too many targets → refused, nothing changes. |
 
+> **The launch flag grants no AWS permission.** Gate 1 (the `--enable-*` flag) and Gate 2 (IAM) are
+> two *separate* switches and you need **both**. Turning on `--enable-destructive` only *exposes* the
+> tool in the client — it does not give your AWS profile any access. If the flag is on but the
+> profile/role is **missing the matching tier policy**, the tool is callable and its dry-run works,
+> but the real `confirm=true` call **fails with an AWS `AccessDenied` error and nothing is deleted**.
+> So enabling writes/destructive in your MCP client is necessary but **not** sufficient: you must
+> *also* attach [`iam/tier2-lifecycle.json`](iam/tier2-lifecycle.json) /
+> [`iam/tier3-destructive.json`](iam/tier3-destructive.json) to the AWS profile (or assumed role)
+> the server runs as.
+>
 > Gates **1–2** are the real security boundary (config + AWS-enforced IAM). Gates **3–4** are
 > in-tool guardrails against an over-eager agent or a fat-fingered single call — they are **not** a
 > substitute for IAM. The genuine least-privilege control is: **don't grant Tier 2/3 and don't pass
