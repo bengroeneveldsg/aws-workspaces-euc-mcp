@@ -1,0 +1,35 @@
+name: Publish to PyPI
+
+# Publishes the package to PyPI using OIDC Trusted Publishing (no API token stored).
+# Fires when a GitHub Release is published, or can be run manually from the Actions tab.
+#
+# One-time PyPI setup (project owner): add a "Trusted Publisher" (pending publisher is fine before
+# the first release) at https://pypi.org/manage/account/publishing/ with:
+#   PyPI project name: workspaces-euc-mcp-server
+#   Owner:             bengroeneveldsg
+#   Repository:        aws-workspaces-euc-mcp
+#   Workflow name:     publish.yml
+#   Environment:       pypi
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write # required for OIDC trusted publishing
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build sdist + wheel
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
