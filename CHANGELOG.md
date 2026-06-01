@@ -6,6 +6,13 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- Estimated monthly $ savings on recommendations, via the AWS Price List API (new
+  `tools/pricing.py`, needs `pricing:GetProducts` / Tier 1): `recommend_running_mode` now fills
+  `estimated_monthly_savings_usd` for AlwaysOn→AutoStop candidates (AlwaysOn monthly − AutoStop
+  base − hourly×estimated-usage), and `recommend_bundle_rightsizing` fills the AlwaysOn
+  compute-tier monthly difference. Best-effort and conservative: matches the canonical
+  Included-license SKU on region/OS/compute/volume sizes and returns **null** (never a wrong
+  number) when it can't match. Validated live (Standard 80/50 → $35/mo, Power 175/100 → $98/mo).
 - `diagnose_pool` (Tier 0): a WorkSpaces Pool health diagnostic correlating pool state, pool
   errors, user-session capacity, backing directory health, and CloudWatch session utilization —
   bringing Pools to parity with the WorkSpace and fleet diagnostics.
