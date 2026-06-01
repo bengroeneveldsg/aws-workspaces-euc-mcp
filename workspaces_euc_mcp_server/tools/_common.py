@@ -10,8 +10,31 @@ from typing import Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
+from mcp.types import ToolAnnotations
 
 from ..models import ServiceError
+
+
+def read_only(title: str) -> ToolAnnotations:
+    """Annotations for a read-only tool (closed-domain: the configured AWS account)."""
+    return ToolAnnotations(
+        title=title,
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=True,
+        openWorldHint=False,
+    )
+
+
+def writes(title: str, *, idempotent: bool = False, destructive: bool = False) -> ToolAnnotations:
+    """Annotations for a mutating tool (lifecycle or destructive)."""
+    return ToolAnnotations(
+        title=title,
+        readOnlyHint=False,
+        destructiveHint=destructive,
+        idempotentHint=idempotent,
+        openWorldHint=False,
+    )
 
 
 def try_call(

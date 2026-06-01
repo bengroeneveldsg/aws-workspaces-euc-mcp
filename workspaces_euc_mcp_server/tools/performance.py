@@ -29,7 +29,7 @@ from ..models import (
     WorkspacePerformance,
 )
 from . import pricing
-from ._common import paginate, try_call
+from ._common import paginate, read_only, try_call
 
 # Right-sizing thresholds on window peak (%). Conservative: only suggest a downsize when there is
 # clear headroom, and an upsize when the desktop is genuinely pressured.
@@ -606,8 +606,15 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return usage.model_dump()
 
-    mcp.add_tool(get_workspace_performance)
-    mcp.add_tool(recommend_bundle_rightsizing)
-    mcp.add_tool(get_application_fleet_usage)
-    mcp.add_tool(get_workspace_connection_history)
-    mcp.add_tool(get_pool_session_history)
+    mcp.add_tool(get_workspace_performance, annotations=read_only("WorkSpace performance"))
+    mcp.add_tool(
+        recommend_bundle_rightsizing, annotations=read_only("Recommend bundle right-sizing")
+    )
+    mcp.add_tool(
+        get_application_fleet_usage, annotations=read_only("Applications fleet usage history")
+    )
+    mcp.add_tool(
+        get_workspace_connection_history,
+        annotations=read_only("WorkSpace connection history"),
+    )
+    mcp.add_tool(get_pool_session_history, annotations=read_only("Pool session history"))

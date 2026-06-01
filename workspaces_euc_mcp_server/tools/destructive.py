@@ -20,7 +20,7 @@ from typing import Any
 from .. import consts
 from ..clients import ClientFactory
 from ..models import ServiceError, TargetResult, WriteOutcome
-from ._common import try_call
+from ._common import try_call, writes
 
 # action -> (boto3 method, per-request key, required acknowledgement phrase, impact note)
 _BATCH_DESTRUCTIVE = {
@@ -302,6 +302,6 @@ def register(mcp: Any, factory: ClientFactory, *, max_bulk_targets: int) -> None
         )
         return outcome.model_dump()
 
-    mcp.add_tool(terminate_workspaces)
-    mcp.add_tool(rebuild_workspaces)
-    mcp.add_tool(restore_workspace)
+    mcp.add_tool(terminate_workspaces, annotations=writes("Terminate WorkSpaces", destructive=True))
+    mcp.add_tool(rebuild_workspaces, annotations=writes("Rebuild WorkSpaces", destructive=True))
+    mcp.add_tool(restore_workspace, annotations=writes("Restore WorkSpace", destructive=True))

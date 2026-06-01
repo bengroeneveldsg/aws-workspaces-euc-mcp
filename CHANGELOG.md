@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- MCP **tool annotations** on every tool (`readOnlyHint` / `destructiveHint` / `idempotentHint` /
+  `openWorldHint` / `title`), so clients can show appropriate consent UX — read-only tools are
+  marked read-only, lifecycle writes non-destructive (start/stop/modify idempotent), and
+  terminate/rebuild/restore destructive. Aligns with the awslabs MCP design guidelines and the
+  MCP tool-annotations spec.
+- `FASTMCP_LOG_LEVEL` env var to control the server log level (default `INFO`).
+- `Literal` types on fixed-value parameters (`running_mode`, cost `granularity`) for clearer
+  client-side validation.
+
 ## [0.1.0] - 2026-06-01
 
 First tagged release. Admin-focused MCP server for the Amazon WorkSpaces EUC portfolio —
