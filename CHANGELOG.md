@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-06-01
+
+Best-practice alignment pass (audited against the awslabs MCP design guidelines and the MCP
+tool-annotations spec).
+
 ### Added
 - MCP **tool annotations** on every tool (`readOnlyHint` / `destructiveHint` / `idempotentHint` /
   `openWorldHint` / `title`), so clients can show appropriate consent UX — read-only tools are
