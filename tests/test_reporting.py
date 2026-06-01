@@ -107,6 +107,14 @@ def test_generate_inventory_report_sections():
     assert stack_sections[0].resources[0].attributes["associated_fleets"] == ["f1"]
 
 
+def _empty_secure_browser():
+    return types.SimpleNamespace(list_portals=lambda **_: {"portals": []})
+
+
+def _empty_appstream():
+    return types.SimpleNamespace(describe_stacks=lambda **_: {"Stacks": []})
+
+
 def test_audit_flags_unencrypted_and_missing_ip_groups():
     workspaces = types.SimpleNamespace(
         describe_workspaces=lambda **_: {
@@ -130,7 +138,13 @@ def test_audit_flags_unencrypted_and_missing_ip_groups():
             ]
         },
     )
-    factory = FakeFactory({consts.WORKSPACES_API: workspaces})
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.SECURE_BROWSER_API: _empty_secure_browser(),
+            consts.APPSTREAM_API: _empty_appstream(),
+        }
+    )
 
     report = reporting.audit_security_posture_core(factory, "us-east-1")
 
@@ -142,7 +156,8 @@ def test_audit_flags_unencrypted_and_missing_ip_groups():
     assert "ws-plain" in flagged_ids
     assert "d-open" in flagged_ids
     assert "ws-enc" not in flagged_ids
-    assert report.resources_checked == {"workspaces": 2, "directories": 2}
+    assert report.resources_checked["workspaces"] == 2
+    assert report.resources_checked["directories"] == 2
 
 
 def test_audit_clean_account_reports_info():
@@ -160,11 +175,65 @@ def test_audit_clean_account_reports_info():
             "Directories": [{"DirectoryId": "d-ok", "ipGroupIds": ["wsipg-1"]}]
         },
     )
-    factory = FakeFactory({consts.WORKSPACES_API: workspaces})
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.SECURE_BROWSER_API: _empty_secure_browser(),
+            consts.APPSTREAM_API: _empty_appstream(),
+        }
+    )
 
     report = reporting.audit_security_posture_core(factory, "us-east-1")
 
     assert report.severity_counts == {"info": 1}
+
+
+def test_audit_flags_data_egress_on_portals_and_stacks():
+    workspaces = types.SimpleNamespace(
+        describe_workspaces=lambda **_: {"Workspaces": []},
+        describe_workspace_directories=lambda **_: {"Directories": []},
+    )
+    secure = types.SimpleNamespace(
+        list_portals=lambda **_: {
+            "portals": [
+                {"portalArn": "arn:portal/leaky", "displayName": "Leaky", "userSettingsArn": "us-1"}
+            ]
+        },
+        get_user_settings=lambda **_: {
+            "userSettings": {"downloadAllowed": "Enabled", "copyAllowed": "Disabled"}
+        },
+    )
+    appstream = types.SimpleNamespace(
+        describe_stacks=lambda **_: {
+            "Stacks": [
+                {
+                    "Name": "leaky-stack",
+                    "UserSettings": [
+                        {"Action": "FILE_DOWNLOAD", "Permission": "ENABLED"},
+                        {"Action": "PRINTING_TO_LOCAL_DEVICE", "Permission": "DISABLED"},
+                    ],
+                }
+            ]
+        },
+    )
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.SECURE_BROWSER_API: secure,
+            consts.APPSTREAM_API: appstream,
+        }
+    )
+
+    report = reporting.audit_security_posture_core(factory, "us-east-1")
+
+    flagged = {f.resource_id for f in report.findings}
+    assert "arn:portal/leaky" in flagged
+    assert "leaky-stack" in flagged
+    titles = " ".join(f.title for f in report.findings)
+    assert "downloadAllowed" in titles  # portal egress flag
+    assert "FILE_DOWNLOAD" in titles  # stack egress action
+    assert report.resources_checked["portals"] == 1
+    assert report.resources_checked["stacks"] == 1
 
 
 def test_list_unused_resources_combines_sources():

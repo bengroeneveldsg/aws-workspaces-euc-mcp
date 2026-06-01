@@ -142,6 +142,23 @@ class FleetUsage(BaseModel):
     errors: list[ServiceError] = Field(default_factory=list)
 
 
+class SecureBrowserPortalDetails(BaseModel):
+    """Resolved settings for a WorkSpaces Secure Browser portal."""
+
+    portal_arn: str
+    display_name: str | None = None
+    authentication_type: str | None = None
+    status: str | None = None
+    user_settings: dict[str, object] = Field(
+        default_factory=dict,
+        description="Clipboard/print/download/upload controls and timeouts.",
+    )
+    network: dict[str, object] = Field(default_factory=dict)
+    has_browser_policy: bool = False
+    has_data_protection: bool = False
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
 class UsageHistory(BaseModel):
     """Generic metric time-series history for a single EUC resource over a window."""
 

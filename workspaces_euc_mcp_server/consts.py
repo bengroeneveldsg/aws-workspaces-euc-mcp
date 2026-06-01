@@ -117,6 +117,22 @@ WORKSPACES_POOL_SESSION_METRICS = [
     ("UserSessionsCapacityUtilization", "Percent"),
 ]
 
+# Secure Browser session metrics (AWS/WorkSpacesWeb, dimension PortalId). NOTE: unlike the other
+# services, Secure Browser only emits these when sessions actually occur (idle portals publish
+# nothing), and richer usage goes via the Session Logger. Names below are per AWS docs and are
+# NOT yet verified against live data (the account's portals have had no sessions).
+SECURE_BROWSER_NAMESPACE = "AWS/WorkSpacesWeb"
+SECURE_BROWSER_PORTAL_DIMENSION = "PortalId"
+SECURE_BROWSER_SESSION_METRICS = [
+    ("SessionAttempt", "Count"),
+    ("SessionSuccess", "Count"),
+    ("SessionFailure", "Count"),
+]
+
+# Secure Browser user-settings flags that, when "Enabled", relax data-egress controls. Used by the
+# security audit. Verified live: GetUserSettings returns these as "Enabled"/"Disabled".
+SECURE_BROWSER_EGRESS_FLAGS = ["downloadAllowed", "copyAllowed", "printAllowed"]
+
 SERVER_INSTRUCTIONS = """\
 Administrator-focused MCP server for the Amazon WorkSpaces End User Computing portfolio:
 WorkSpaces Personal, WorkSpaces Pools, WorkSpaces Applications, WorkSpaces Secure Browser, and

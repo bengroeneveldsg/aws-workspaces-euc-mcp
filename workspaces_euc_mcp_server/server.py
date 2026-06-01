@@ -21,6 +21,7 @@ from .tools import (
     lifecycle,
     performance,
     reporting,
+    secure_browser,
 )
 
 
@@ -42,6 +43,7 @@ def create_server(
     cost.register(mcp, factory)
     reporting.register(mcp, factory)
     performance.register(mcp, factory)
+    secure_browser.register(mcp, factory)
 
     if enable_writes:
         logger.info(

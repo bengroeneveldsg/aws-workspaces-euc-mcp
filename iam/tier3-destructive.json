@@ -35,7 +35,9 @@
         "workspaces-web:GetPortal",
         "workspaces-web:ListBrowserSettings",
         "workspaces-web:ListUserSettings",
-        "workspaces-web:ListNetworkSettings"
+        "workspaces-web:ListNetworkSettings",
+        "workspaces-web:GetUserSettings",
+        "workspaces-web:GetNetworkSettings"
       ],
       "Resource": "*"
     },

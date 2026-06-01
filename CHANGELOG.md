@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- WorkSpaces Secure Browser parity: `get_secure_browser_portal_details` (resolves user/network
+  settings — clipboard/print/download controls) and `get_secure_browser_portal_usage`
+  (`AWS/WorkSpacesWeb` session metrics; note Secure Browser only emits these during sessions, so
+  idle portals return nothing). Adds `workspaces-web:GetUserSettings`/`GetNetworkSettings` to the
+  IAM tiers.
+- `audit_security_posture` is now **cross-service**: in addition to WorkSpace volume encryption and
+  directory IP access control groups, it flags **Secure Browser portals** and **Applications
+  stacks** that permit data egress (clipboard-to-local / download / print).
+
 ### Fixed
 - `generate_inventory_report` Pools capacity was always `null` — it read the wrong key (`Capacity`
   instead of `CapacityStatus`). Now populated with the real session capacity.
