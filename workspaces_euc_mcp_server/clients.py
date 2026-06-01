@@ -11,6 +11,8 @@ before expiry, and no tool code changes (every tool just calls ``factory.client(
 
 from __future__ import annotations
 
+from typing import Any
+
 import boto3
 from botocore.config import Config
 from botocore.credentials import RefreshableCredentials
@@ -39,20 +41,20 @@ class ClientFactory:
         self._base_session = boto3.Session(profile_name=profile, region_name=region)
         # The effective session: the base one, or a cross-account assumed-role one (MSP / multi-
         # account). Assumed credentials auto-refresh before expiry, so clients keep working.
-        self._session = self._build_assumed_session() if role_arn else self._base_session
-        self._cache: dict[tuple[str, str | None], object] = {}
+        self._session = self._build_assumed_session(role_arn) if role_arn else self._base_session
+        self._cache: dict[tuple[str, str | None], Any] = {}
 
-    def _build_assumed_session(self) -> boto3.Session:
+    def _build_assumed_session(self, role_arn: str) -> boto3.Session:
         """Build a boto3 Session backed by auto-refreshing sts:AssumeRole credentials."""
+
+        external_id = self._external_id
+        session_name = self._role_session_name
 
         def _refresh() -> dict[str, str]:
             sts = self._base_session.client("sts", config=self._config())
-            kwargs: dict[str, str] = {
-                "RoleArn": self._role_arn,
-                "RoleSessionName": self._role_session_name,
-            }
-            if self._external_id:
-                kwargs["ExternalId"] = self._external_id
+            kwargs: dict[str, str] = {"RoleArn": role_arn, "RoleSessionName": session_name}
+            if external_id:
+                kwargs["ExternalId"] = external_id
             creds = sts.assume_role(**kwargs)["Credentials"]
             return {
                 "access_key": creds["AccessKeyId"],
@@ -83,8 +85,11 @@ class ClientFactory:
             retries={"max_attempts": 3, "mode": "standard"},
         )
 
-    def client(self, service_name: str, region: str | None = None):
-        """Return a cached boto3 client for ``service_name`` in the target region."""
+    def client(self, service_name: str, region: str | None = None) -> Any:
+        """Return a cached boto3 client for ``service_name`` in the target region.
+
+        Typed ``Any`` because boto3 clients are dynamically generated per service.
+        """
         target_region = region or self._region
         key = (service_name, target_region)
         if key not in self._cache:

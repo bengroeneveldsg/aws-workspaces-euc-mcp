@@ -144,10 +144,10 @@ def _rightsizing_recommendation(
     if compute_type not in order:
         return None  # graphics / unknown family — not safe to auto-suggest
     idx = order.index(compute_type)
-    cpu_peak = cpu.peak if cpu else None
-    mem_peak = mem.peak if mem else None
-    if cpu_peak is None or mem_peak is None:
+    if cpu is None or mem is None or cpu.peak is None or mem.peak is None:
         return None  # insufficient data
+    cpu_peak = cpu.peak
+    mem_peak = mem.peak
 
     def stats() -> str:
         return (
@@ -345,7 +345,7 @@ def _fetch_fleet_usage(
     )
 
 
-def _summarize_fleet_usage(metrics: dict[str, FleetMetricSeries], lookback_days: int) -> str:
+def _summarize_fleet_usage(metrics: dict[str, FleetMetricSeries], lookback_days: int) -> str | None:
     if not metrics:
         return "No usage datapoints — the fleet was likely stopped for the whole window."
     in_use = metrics.get("InUseCapacity")
@@ -445,7 +445,7 @@ def get_workspace_connection_history_core(
 
 def _summarize_pool_session_history(
     metrics: dict[str, FleetMetricSeries], lookback_days: int
-) -> str:
+) -> str | None:
     if not metrics:
         return f"No session datapoints in {lookback_days}d (pool may be stopped)."
     active = metrics.get("ActiveUserSessionCapacity")

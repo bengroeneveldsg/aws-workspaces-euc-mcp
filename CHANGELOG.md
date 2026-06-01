@@ -5,7 +5,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-06-01
+
+First tagged release. Admin-focused MCP server for the Amazon WorkSpaces EUC portfolio —
+18 read-only tools (inventory, diagnostics, performance/usage history, cost & right-sizing with
+$ estimates, audit, reporting) and 10 guarded write/destructive tools, across WorkSpaces Personal,
+Pools, Applications, Secure Browser, and Core Managed Instances. Four additive IAM tiers,
+multi-account/MSP via assume-role, no embedded tenant data, CI (ruff/format/pyright/bandit/pytest
+on Py 3.11–3.13).
+
 ### Added
+- CI now also runs `pyright` (basic type-checking); the codebase type-checks clean.
 - Multi-account / MSP support: `--assume-role-arn` (+ optional `--external-id`) transparently
   `sts:AssumeRole`s into another account, with auto-refreshing credentials and no tool-code
   changes. The launching identity needs `sts:AssumeRole` on the target role; the role needs the
