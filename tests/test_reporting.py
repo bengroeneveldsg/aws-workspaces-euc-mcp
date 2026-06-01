@@ -76,17 +76,33 @@ def test_generate_inventory_report_sections():
             "portals": [{"portalArn": "arn:portal/1", "displayName": "p", "portalStatus": "Active"}]
         },
     )
+    instances = types.SimpleNamespace(
+        list_workspace_instances=lambda **_: {
+            "WorkspaceInstances": [
+                {
+                    "WorkspaceInstanceId": "wsinst-1",
+                    "ProvisionState": "ALLOCATED",
+                    "EC2ManagedInstance": {"InstanceId": "i-abc"},
+                }
+            ]
+        },
+    )
     factory = FakeFactory(
         {
             consts.WORKSPACES_API: workspaces,
             consts.APPSTREAM_API: appstream,
             consts.SECURE_BROWSER_API: secure_browser,
+            consts.WORKSPACES_INSTANCES_API: instances,
         }
     )
 
     report = reporting.generate_inventory_report_core(factory, "us-east-1")
 
-    assert report.total_resources == 5  # personal, pool, fleet, stack, portal
+    assert report.total_resources == 6  # personal, pool, fleet, stack, portal, managed-instance
+    mi = [s for s in report.sections if s.resource_type == "ManagedInstance"][0].resources[0]
+    assert mi.id == "wsinst-1"
+    assert mi.state == "ALLOCATED"
+    assert mi.attributes["ec2_instance_id"] == "i-abc"
     by_service = {s.service: s for s in report.sections}
     personal = by_service[consts.PRODUCT_WORKSPACES_PERSONAL].resources[0]
     assert personal.id == "ws-1"

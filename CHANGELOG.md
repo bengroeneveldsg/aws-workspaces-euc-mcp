@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- WorkSpaces Core Managed Instances coverage (the `workspaces-instances` API, previously not
+  covered at all): `get_euc_inventory_summary` and `generate_inventory_report` now include managed
+  instances (id, provision state, backing EC2 instance id). Adds the
+  `workspaces-instances:ListWorkspaceInstances`/`GetWorkspaceInstance`/`ListInstanceTypes`/`ListRegions`
+  IAM actions to all tiers.
 - WorkSpaces Secure Browser parity: `get_secure_browser_portal_details` (resolves user/network
   settings — clipboard/print/download controls) and `get_secure_browser_portal_usage`
   (`AWS/WorkSpacesWeb` session metrics; note Secure Browser only emits these during sessions, so

@@ -42,6 +42,17 @@
       "Resource": "*"
     },
     {
+      "Sid": "WorkSpacesCoreManagedInstancesReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "workspaces-instances:ListWorkspaceInstances",
+        "workspaces-instances:GetWorkspaceInstance",
+        "workspaces-instances:ListInstanceTypes",
+        "workspaces-instances:ListRegions"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "SharedDependenciesReadOnly",
       "Effect": "Allow",
       "Action": [

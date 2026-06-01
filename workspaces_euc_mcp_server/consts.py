@@ -16,6 +16,7 @@ SERVER_VERSION = __version__
 WORKSPACES_API = "workspaces"  # Amazon WorkSpaces Personal, Pools, and Core all use this client.
 APPSTREAM_API = "appstream"  # Amazon WorkSpaces Applications (formerly AppStream 2.0).
 SECURE_BROWSER_API = "workspaces-web"  # Amazon WorkSpaces Secure Browser (formerly WorkSpaces Web).
+WORKSPACES_INSTANCES_API = "workspaces-instances"  # Amazon WorkSpaces Core Managed Instances.
 DIRECTORY_API = "ds"  # AWS Directory Service (shared dependency).
 CLOUDWATCH_API = "cloudwatch"  # Telemetry for diagnostics/cost tools.
 COST_EXPLORER_API = "ce"  # Cost Explorer (global; account-wide, not region-scoped).
@@ -38,6 +39,7 @@ PRODUCT_WORKSPACES_PERSONAL = "Amazon WorkSpaces Personal"
 PRODUCT_WORKSPACES_POOLS = "Amazon WorkSpaces Pools"
 PRODUCT_WORKSPACES_APPLICATIONS = "Amazon WorkSpaces Applications"
 PRODUCT_SECURE_BROWSER = "Amazon WorkSpaces Secure Browser"
+PRODUCT_WORKSPACES_CORE_INSTANCES = "Amazon WorkSpaces Core Managed Instances"
 
 # Legacy / former product names mapped to their current official name. Accept these as INPUT
 # (users will keep saying them) but always emit the current name in output. This is surfaced to the
