@@ -5,6 +5,11 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- Docker support: a `Dockerfile` (slim, non-root) and a GHCR publish workflow
+  (`ghcr.io/bengroeneveldsg/aws-workspaces-euc-mcp`, pushed on release). CI validates the image
+  builds. Matches the awslabs MCP distribution pattern (PyPI/uvx + container).
+
 ## [0.1.1] - 2026-06-01
 
 Best-practice alignment pass (audited against the awslabs MCP design guidelines and the MCP

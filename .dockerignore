@@ -1,0 +1,32 @@
+# Keep the build context small and free of local/secret artifacts.
+.git
+.github
+.venv
+venv
+env
+dist
+build
+*.egg-info
+tests
+scripts
+iam
+docs
+
+# Markdown (except the README, which pyproject references)
+*.md
+!README.md
+
+# Never ship local credentials / tenant data
+.aws
+*.pem
+.env
+*-perf.html
+ws-*.html
+
+# Caches
+__pycache__
+*.py[cod]
+.pytest_cache
+.ruff_cache
+.pyright
+.mypy_cache
