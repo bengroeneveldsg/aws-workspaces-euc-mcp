@@ -47,8 +47,14 @@
   factory designed to add cross-account `sts:AssumeRole` later without touching tool code.
 - **Transport:** local `uvx`/stdio first; tool logic kept transport-agnostic so a remote
   (AgentCore Runtime) deployment can be added later.
-- **Distribution:** `uvx awslabs.workspaces-euc-mcp-server@latest` and a Docker image.
-- **Observability:** Loguru with env-controlled log level; structured tool errors via `ctx.error`.
+- **Distribution (shipped):** published to PyPI as `workspaces-euc-mcp-server` (run via
+  `uvx workspaces-euc-mcp-server@latest` or `pip`), and a container image on GHCR
+  (`ghcr.io/bengroeneveldsg/aws-workspaces-euc-mcp`). Independent — not under the `awslabs.`
+  namespace. Both publish from GitHub Releases via OIDC trusted publishing (PyPI) and `GITHUB_TOKEN`
+  (GHCR).
+- **Observability:** Loguru with env-controlled log level (`FASTMCP_LOG_LEVEL`). Per-signal errors
+  are returned in the structured result payload (deliberate: each tool makes many AWS calls and
+  synthesizes one result), rather than `ctx.error`.
 - **Repo layout:**
   ```
   awslabs/workspaces_euc_mcp_server/

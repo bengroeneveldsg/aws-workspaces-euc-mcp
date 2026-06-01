@@ -111,13 +111,28 @@ Bring your own credentials and region; the server holds nothing.
 
 ## Install
 
-With [`uv`](https://docs.astral.sh/uv/) (recommended once published):
+With [`uv`](https://docs.astral.sh/uv/) (recommended):
 
 ```bash
 uvx workspaces-euc-mcp-server@latest
 ```
 
-From source:
+Or with pip:
+
+```bash
+pip install workspaces-euc-mcp-server
+```
+
+Or with Docker (published to GHCR; the server speaks MCP over stdio, so run with `-i`):
+
+```bash
+docker run -i --rm \
+  -e AWS_PROFILE=your-euc-admin-profile -e AWS_REGION=us-east-1 \
+  -v "$HOME/.aws:/home/mcp/.aws:ro" \
+  ghcr.io/bengroeneveldsg/aws-workspaces-euc-mcp:latest --region us-east-1
+```
+
+From source (for development):
 
 ```bash
 python -m venv .venv

@@ -32,3 +32,10 @@ jobs:
         run: . .venv/bin/activate && bandit -c pyproject.toml -r workspaces_euc_mcp_server
       - name: Test (includes no-embedded-secrets guardrail)
         run: . .venv/bin/activate && pytest -q
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (validation only, no push)
+        run: docker build -t workspaces-euc-mcp-server:ci .
