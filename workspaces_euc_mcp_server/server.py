@@ -29,12 +29,16 @@ def create_server(
     *,
     region: str | None = None,
     profile: str | None = None,
+    role_arn: str | None = None,
+    external_id: str | None = None,
     enable_writes: bool = False,
     enable_destructive: bool = False,
     max_bulk_targets: int = consts.DEFAULT_MAX_BULK_TARGETS,
 ) -> FastMCP:
     """Build the FastMCP server, registering tools according to the safety flags."""
-    factory = ClientFactory(region=region, profile=profile)
+    factory = ClientFactory(
+        region=region, profile=profile, role_arn=role_arn, external_id=external_id
+    )
     mcp = FastMCP(consts.SERVER_NAME, instructions=consts.SERVER_INSTRUCTIONS)
 
     # Phase 1 read-only tools are always registered.
@@ -76,6 +80,15 @@ def main() -> None:
     parser.add_argument("--region", help="AWS region (overrides AWS_REGION / profile default).")
     parser.add_argument("--profile", help="AWS named profile to use.")
     parser.add_argument(
+        "--assume-role-arn",
+        help="Cross-account IAM role ARN to assume (multi-account / MSP). The caller needs "
+        "sts:AssumeRole on it; the role needs the matching tier permissions.",
+    )
+    parser.add_argument(
+        "--external-id",
+        help="ExternalId to pass when assuming --assume-role-arn (if the role requires one).",
+    )
+    parser.add_argument(
         "--enable-writes",
         action="store_true",
         help="Register Phase 2 lifecycle (write) tools. Off by default.",
@@ -102,6 +115,8 @@ def main() -> None:
     mcp = create_server(
         region=args.region,
         profile=args.profile,
+        role_arn=args.assume_role_arn,
+        external_id=args.external_id,
         enable_writes=args.enable_writes,
         enable_destructive=args.enable_destructive,
         max_bulk_targets=args.max_bulk_targets,
