@@ -568,6 +568,151 @@ def _summarize(status: str, subject: str) -> str:
 
 
 # --------------------------------------------------------------------------------------
+# WorkSpaces Pools
+# --------------------------------------------------------------------------------------
+
+
+def diagnose_pool_core(
+    factory: ClientFactory,
+    pool_id: str,
+    region: str | None,
+    lookback_hours: int = 24,
+) -> Diagnosis:
+    errors: list[ServiceError] = []
+    findings: list[Finding] = []
+    signals: dict[str, object] = {}
+
+    workspaces = factory.client(consts.WORKSPACES_API, region=region)
+    described = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_POOLS,
+        "DescribeWorkspacesPools",
+        lambda: workspaces.describe_workspaces_pools(PoolIds=[pool_id]),
+        default={},
+    )
+    pools = (described or {}).get("WorkspacesPools", [])
+    if not pools:
+        return Diagnosis(
+            target_type=consts.PRODUCT_WORKSPACES_POOLS,
+            target_id=pool_id,
+            region=region,
+            status="not_found" if not errors else "unknown",
+            summary=f"Pool {pool_id} was not found in {region or 'the region'}."
+            if not errors
+            else f"Could not retrieve pool {pool_id}.",
+            findings=findings,
+            errors=errors,
+        )
+
+    pool = pools[0]
+    state = pool.get("State", "UNKNOWN")
+    directory_id = pool.get("DirectoryId")
+    signals["state"] = state
+    signals["running_mode"] = pool.get("RunningMode")
+    signals["directory_id"] = directory_id
+
+    if state == "STOPPED":
+        findings.append(
+            Finding(
+                severity="warning",
+                title="Pool is STOPPED",
+                detail="A stopped pool serves no sessions.",
+                recommendation="Start the pool if users need access.",
+            )
+        )
+    elif state in {"STARTING", "STOPPING", "UPDATING"}:
+        findings.append(
+            Finding(severity="info", title=f"Pool is {state}", detail="The pool is mid-transition.")
+        )
+    elif state == "RUNNING":
+        findings.append(
+            Finding(severity="info", title="Pool is RUNNING", detail="The pool is active.")
+        )
+
+    for err in pool.get("Errors", []) or []:
+        findings.append(
+            Finding(
+                severity="critical",
+                title=f"Pool error: {err.get('ErrorCode', 'Unknown')}",
+                detail=err.get("ErrorMessage", "No message provided."),
+                recommendation="Resolve the underlying error (directory, networking, or bundle).",
+            )
+        )
+
+    cap = pool.get("CapacityStatus", {})
+    desired = cap.get("DesiredUserSessions")
+    actual = cap.get("ActualUserSessions")
+    active = cap.get("ActiveUserSessions")
+    available = cap.get("AvailableUserSessions")
+    signals["capacity"] = {
+        "desired": desired,
+        "actual": actual,
+        "active": active,
+        "available": available,
+    }
+    if available == 0 and active and actual is not None and active >= actual:
+        findings.append(
+            Finding(
+                severity="critical",
+                title="Pool session capacity is exhausted",
+                detail=f"All {actual} session slots are in use (0 available); new sessions will "
+                "be rejected.",
+                recommendation="Raise desired capacity or enable/extend auto scaling.",
+            )
+        )
+    elif desired is not None and actual is not None and actual < desired:
+        findings.append(
+            Finding(
+                severity="warning",
+                title=f"Pool is below desired capacity ({actual}/{desired})",
+                detail="Fewer session slots are available than desired; users may queue while it "
+                "scales.",
+                recommendation="Check directory health and scaling activity.",
+            )
+        )
+
+    if directory_id:
+        _diagnose_directory_into(
+            factory,
+            region,
+            directory_id,
+            findings,
+            errors,
+            signals_prefix="directory_",
+            signals=signals,
+        )
+
+    cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
+    util = try_call(
+        errors,
+        "Amazon CloudWatch",
+        "GetMetricData",
+        lambda: _metric_stat(
+            cloudwatch,
+            "AWS/WorkSpaces",
+            "UserSessionsCapacityUtilization",
+            {consts.WORKSPACES_POOL_DIMENSION: pool_id},
+            lookback_hours,
+            stat="Maximum",
+        ),
+    )
+    if util is not None:
+        signals["peak_utilization_percent"] = util
+
+    status = _overall_status(findings)
+    return Diagnosis(
+        target_type=consts.PRODUCT_WORKSPACES_POOLS,
+        target_id=pool_id,
+        region=region,
+        status=status,
+        summary=_summarize(status, f"Pool {pool_id}"),
+        signals=signals,
+        findings=findings,
+        errors=errors,
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Registration
 # --------------------------------------------------------------------------------------
 
@@ -629,6 +774,23 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         report = check_directory_health_core(factory, directory_id, region or factory.region)
         return report.model_dump()
 
+    async def diagnose_pool(
+        pool_id: str, region: str | None = None, lookback_hours: int = 24
+    ) -> dict[str, Any]:
+        """Diagnose a WorkSpaces Pool's health and session capacity.
+
+        Correlates pool state, pool errors, user-session capacity, backing directory health, and
+        recent CloudWatch session-capacity utilization into a single verdict. Read-only.
+
+        Args:
+            pool_id: The WorkSpaces Pool ID (wspool-...).
+            region: AWS region. Defaults to the server's configured region.
+            lookback_hours: Window for CloudWatch utilization (default 24).
+        """
+        diag = diagnose_pool_core(factory, pool_id, region or factory.region, lookback_hours)
+        return diag.model_dump()
+
     mcp.add_tool(diagnose_workspace_connectivity)
     mcp.add_tool(diagnose_application_fleet)
     mcp.add_tool(check_directory_health)
+    mcp.add_tool(diagnose_pool)

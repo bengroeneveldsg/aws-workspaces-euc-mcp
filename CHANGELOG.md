@@ -6,6 +6,9 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `diagnose_pool` (Tier 0): a WorkSpaces Pool health diagnostic correlating pool state, pool
+  errors, user-session capacity, backing directory health, and CloudWatch session utilization —
+  bringing Pools to parity with the WorkSpace and fleet diagnostics.
 - WorkSpaces Core Managed Instances coverage (the `workspaces-instances` API, previously not
   covered at all): `get_euc_inventory_summary` and `generate_inventory_report` now include managed
   instances, enriched with the backing EC2 instance's type / state / launch time / private IP /
