@@ -4,12 +4,12 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 10 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 18 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
-> guards. All four IAM policy tiers ship in `iam/`. CI (ruff/format/bandit/pytest on Py 3.11–3.13)
-> is green. See `README.md` for the live tool catalog and `CHANGELOG.md` for per-phase detail.
-> **Still deferred:** `recommend_bundle_rightsizing` (needs the WorkSpaces CloudWatch agent for
-> CPU/memory) — see §10.
+> guards. All four IAM policy tiers ship in `iam/`. CI (ruff/format/pyright/bandit/pytest on
+> Py 3.11–3.13) is green; published to PyPI and GHCR. **`README.md` is the source of truth for the
+> live tool catalog and exact tool names** — §5 below records the original design intent and is
+> kept reconciled with what shipped. See `CHANGELOG.md` for per-version detail.
 
 ## 1. Principles
 
@@ -55,26 +55,33 @@
 - **Observability:** Loguru with env-controlled log level (`FASTMCP_LOG_LEVEL`). Per-signal errors
   are returned in the structured result payload (deliberate: each tool makes many AWS calls and
   synthesizes one result), rather than `ctx.error`.
-- **Repo layout:**
+- **Repo layout** (independent package — **not** under an `awslabs/` namespace):
   ```
-  awslabs/workspaces_euc_mcp_server/
+  workspaces_euc_mcp_server/
     __init__.py        # version
-    server.py          # FastMCP app + tool registration
-    consts.py          # service/API constants, region maps
+    server.py          # FastMCP app + tool registration + main()/argparse
+    consts.py          # service/API constants, region→pricing-location maps
     models.py          # Pydantic request/response models
-    clients.py         # boto3 client factory (region/profile aware)
+    clients.py         # boto3 client factory (region/profile/assume-role aware)
     tools/
+      _common.py       # read_only/writes annotation helpers, try_call, paginate
       inventory.py
       diagnostics.py
       cost.py
+      performance.py   # perf + usage/history tools (native CloudWatch metrics)
       reporting.py
-      lifecycle.py     # Phase 2 (guarded writes)
-    iam/               # shippable least-privilege policy docs per tier
-  tests/               # pytest + pytest-asyncio + moto
+      secure_browser.py
+      pricing.py       # AWS Price List lookups for $ estimates
+      lifecycle.py     # Tier 2 (guarded writes)
+      destructive.py   # Tier 3 (terminate/rebuild/restore)
+  iam/                 # shippable least-privilege policy docs per tier (0–3)
+  tests/               # pytest + pytest-asyncio (no live AWS; calls are stubbed/monkeypatched)
+  Dockerfile, .dockerignore
   pyproject.toml, .pre-commit-config.yaml, README.md, CHANGELOG.md, LICENSE
   ```
-- **Quality gates:** ruff (format/lint), pyright (types), bandit (security), moto (AWS mocks),
-  pre-commit, Apache-2.0 headers.
+- **Quality gates:** ruff (format/lint), pyright (basic type-checking), bandit (security),
+  pre-commit (incl. `detect-private-key`), Apache-2.0 headers. Tests stub the boto3 layer rather
+  than hitting AWS.
 
 ## 4. Configuration / safety flags
 
@@ -91,50 +98,59 @@ and return a synthesized result, not raw API passthroughs.
 
 ### Phase 1 — Read / Diagnose / Optimize (read-only, Tiers 0–1)
 
+> Tool names below are the **shipped** names. Where the original plan used a different working
+> name, the shipped name is what appears here.
+
 **Inventory & discovery**
 | Tool | Purpose | IAM actions |
 |---|---|---|
-| `list_workspaces_personal` | Personal desktops + live connection status | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspacesConnectionStatus`, `workspaces:DescribeWorkspaceDirectories` |
-| `list_workspaces_pools` | Pools + active sessions | `workspaces:DescribeWorkspacesPools`, `workspaces:DescribeWorkspacesPoolSessions` |
-| `list_application_fleets` | WorkSpaces Applications fleets/stacks/associations | `appstream:DescribeFleets`, `appstream:DescribeStacks`, `appstream:DescribeFleetAssociations` |
-| `list_secure_browser_portals` | Secure Browser portals + settings | `workspaces-web:ListPortals`, `workspaces-web:GetPortal`, `workspaces-web:List*Settings` |
-| `get_euc_inventory_summary` | Cross-service rollup (counts, states, regions) | union of the above describes |
+| `get_euc_inventory_summary` | Cross-service rollup (counts, states, regions) across Personal, Pools, Applications, Secure Browser, Core | union of the in-scope describes |
+| `generate_inventory_report` | Structured per-resource inventory across all in-scope services | Phase-1 describes |
 
 **Troubleshooting & triage** (the flagship value)
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `diagnose_workspace_connectivity` | Correlate a Personal WorkSpace's state + connection status + directory health + CloudWatch into a root-cause narrative | `workspaces:Describe*`, `ds:DescribeDirectories`, `cloudwatch:GetMetricData` |
-| `diagnose_pool_session` | Why a Pools session failed/queued — capacity, errors, scaling | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
-| `diagnose_application_fleet` | Fleet state, capacity, scaling activity, fleet errors | `appstream:DescribeFleets`, `appstream:DescribeFleetAssociations`, `cloudwatch:GetMetricData`, `application-autoscaling:DescribeScalingActivities` |
-| `check_directory_health` | Shared dependency: directory reachability/registration | `ds:DescribeDirectories`, `workspaces:DescribeWorkspaceDirectories` |
+| `diagnose_pool` | Why a Pool is unhealthy/queued — capacity status, sessions, errors, scaling | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
+| `diagnose_application_fleet` | Fleet state, capacity, scaling activity, fleet errors | `appstream:DescribeFleets`, `appstream:ListAssociatedStacks`, `cloudwatch:GetMetricData`, `application-autoscaling:DescribeScalingActivities` |
+| `check_directory_health` | Shared dependency: directory reachability/registration (skips `ds` for WorkSpaces-managed `wsd-` directories) | `ds:DescribeDirectories`, `workspaces:DescribeWorkspaceDirectories` |
 
-**Cost & utilization optimization**
+**Cost, utilization & performance**
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `analyze_workspace_utilization` | Find idle/unused Personal WorkSpaces from connection metrics | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
-| `recommend_running_mode` | AlwaysOn → AutoStop candidates with $ estimate | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData`, `pricing:GetProducts` |
-| `recommend_bundle_rightsizing` | Over/under-sized bundles from CPU/mem metrics | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspaceBundles`, `cloudwatch:GetMetricData` |
-| `analyze_pool_capacity` | Pools over/under-provisioning | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
-| `analyze_fleet_capacity` | Applications fleet capacity vs demand | `appstream:DescribeFleets`, `cloudwatch:GetMetricData` |
+| `recommend_running_mode` | AlwaysOn → AutoStop candidates with a $ estimate | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData`, `pricing:GetProducts` |
+| `recommend_bundle_rightsizing` | Over/under-sized bundles from native CPU/mem metrics (see §10) | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspaceBundles`, `cloudwatch:GetMetricData` |
+| `get_workspace_performance` | Per-WorkSpace CPU/mem/GPU/FPS/latency from native `AWS/WorkSpaces` metrics | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData` |
+| `get_workspace_connection_history` | Per-WorkSpace connection timeline | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
+| `get_pool_session_history` | Pool session/capacity history | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
+| `get_application_fleet_usage` | Applications fleet utilization vs capacity | `appstream:DescribeFleets`, `cloudwatch:GetMetricData` |
 | `get_euc_cost_summary` | Spend rollup filtered to EUC services | `ce:GetCostAndUsage`, `ce:GetDimensionValues` |
+
+**Secure Browser**
+| Tool | Purpose | IAM actions |
+|---|---|---|
+| `get_secure_browser_portal_details` | Portal config + associated settings (browser/network/user/IP-access) | `workspaces-web:GetPortal`, `workspaces-web:List*`, `workspaces-web:Get*Settings` |
+| `get_secure_browser_portal_usage` | Portal session/usage metrics | `workspaces-web:ListPortals`, `cloudwatch:GetMetricData` |
 
 **Reporting & audit**
 | Tool | Purpose | IAM actions |
 |---|---|---|
-| `generate_inventory_report` | Structured inventory across all in-scope services | Phase-1 describes |
 | `audit_security_posture` | Encryption at rest, IP access control groups, directory config, portal policies | `workspaces:Describe*`, `workspaces-web:Get*/List*`, `appstream:Describe*` |
-| `list_unused_resources` | Idle desktops / empty fleets / orphaned associations | describes + `cloudwatch:GetMetricData` |
+| `list_unused_resources` | Idle desktops / empty fleets / orphaned resources | describes + `cloudwatch:GetMetricData` |
 
 ### Phase 2 — Guarded lifecycle (writes; Tier 2, `--enable-writes`)
 All support `dry_run`, return a plan + blast-radius before acting, and honor `--max-bulk-targets`.
 
 | Tool | Purpose | IAM actions |
 |---|---|---|
-| `start_workspaces` / `stop_workspaces` / `reboot_workspaces` | Power ops | `workspaces:Start/Stop/RebootWorkspaces` |
+| `start_workspaces` / `stop_workspaces` / `reboot_workspaces` | Personal power ops | `workspaces:Start/Stop/RebootWorkspaces` |
 | `modify_workspace_running_mode` | Apply AutoStop/AlwaysOn recommendation | `workspaces:ModifyWorkspaceProperties` |
-| `modify_workspace_compute_type` | Apply right-sizing recommendation | `workspaces:ModifyWorkspaceProperties` |
-| `update_pool_capacity` | Resize a Pool | `workspaces:UpdateWorkspacesPool` |
-| `start_application_fleet` / `stop_application_fleet` / `update_fleet_capacity` | Applications fleet ops | `appstream:Start/Stop/UpdateFleet` |
+| `start_workspaces_pool` / `stop_workspaces_pool` / `update_workspaces_pool_capacity` | Pool power + resize | `workspaces:Start/Stop/UpdateWorkspacesPool` |
+| `start_application_fleet` / `stop_application_fleet` / `update_application_fleet_capacity` | Applications fleet ops | `appstream:Start/Stop/UpdateFleet` |
+
+> Note: bundle right-sizing is **recommend-only** (`recommend_bundle_rightsizing`); there is no
+> `modify_workspace_compute_type` write tool — applying a compute change is left to the operator.
 
 ### Phase 3 — Destructive (Tier 3, `--enable-destructive`, hardest gating)
 | Tool | Purpose | IAM actions |
@@ -177,7 +193,7 @@ human operator** (the pattern the AWS MCP Server uses).
 ## 8. Phased roadmap
 
 - **Phase 0 — Scaffold:** repo per awslabs layout, client factory, auth, `--readonly` flag,
-  one end-to-end tool (`get_euc_inventory_summary`), tests with moto, CI/pre-commit. Ship to
+  one end-to-end tool (`get_euc_inventory_summary`), tests (stubbed boto3), CI/pre-commit. Ship to
   internal users.
 - **Phase 1 — Read/Diagnose/Optimize:** full inventory + diagnostics + cost tools (Tiers 0–1).
   This is the demonstrable-value milestone.
