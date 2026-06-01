@@ -254,6 +254,85 @@ def test_application_fleet_surfaces_fleet_errors():
     assert any("IAM_SERVICE_ROLE_MISSING" in f.title for f in diag.findings)
 
 
+def test_pool_diagnosis_healthy():
+    ws_dir, ds = _healthy_directory_clients()
+    workspaces = types.SimpleNamespace(
+        describe_workspaces_pools=lambda **_: {
+            "WorkspacesPools": [
+                {
+                    "PoolId": "wspool-1",
+                    "State": "RUNNING",
+                    "DirectoryId": "d-123",
+                    "CapacityStatus": {
+                        "DesiredUserSessions": 2,
+                        "ActualUserSessions": 2,
+                        "ActiveUserSessions": 0,
+                        "AvailableUserSessions": 2,
+                    },
+                }
+            ]
+        },
+        describe_workspace_directories=ws_dir.describe_workspace_directories,
+    )
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.DIRECTORY_API: ds,
+            consts.CLOUDWATCH_API: _fake_cloudwatch({"UserSessionsCapacityUtilization": 0.0}),
+        }
+    )
+
+    diag = diagnostics.diagnose_pool_core(factory, "wspool-1", "us-east-1")
+
+    assert diag.status == "healthy"
+    assert diag.signals["state"] == "RUNNING"
+    assert diag.signals["peak_utilization_percent"] == 0.0
+
+
+def test_pool_diagnosis_capacity_exhausted_and_errors():
+    workspaces = types.SimpleNamespace(
+        describe_workspaces_pools=lambda **_: {
+            "WorkspacesPools": [
+                {
+                    "PoolId": "wspool-2",
+                    "State": "RUNNING",
+                    "Errors": [{"ErrorCode": "DIRECTORY_FAILURE", "ErrorMessage": "dir gone"}],
+                    "CapacityStatus": {
+                        "DesiredUserSessions": 5,
+                        "ActualUserSessions": 5,
+                        "ActiveUserSessions": 5,
+                        "AvailableUserSessions": 0,
+                    },
+                }
+            ]
+        },
+    )
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.CLOUDWATCH_API: _fake_cloudwatch({}),
+        }
+    )
+
+    diag = diagnostics.diagnose_pool_core(factory, "wspool-2", "us-east-1")
+
+    assert diag.status == "unhealthy"
+    titles = " ".join(f.title for f in diag.findings)
+    assert "capacity is exhausted" in titles
+    assert "DIRECTORY_FAILURE" in titles
+
+
+def test_pool_diagnosis_not_found():
+    workspaces = types.SimpleNamespace(
+        describe_workspaces_pools=lambda **_: {"WorkspacesPools": []},
+    )
+    factory = FakeFactory({consts.WORKSPACES_API: workspaces})
+
+    diag = diagnostics.diagnose_pool_core(factory, "wspool-missing", "us-east-1")
+
+    assert diag.status == "not_found"
+
+
 def test_application_fleet_not_found():
     appstream = types.SimpleNamespace(describe_fleets=lambda **_: {"Fleets": []})
     factory = FakeFactory({consts.APPSTREAM_API: appstream})
