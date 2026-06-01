@@ -8,7 +8,9 @@ End User Computing (EUC) portfolio:
 - **Amazon WorkSpaces Pools** — non-persistent pooled desktops
 - **Amazon WorkSpaces Applications** — application streaming (formerly AppStream 2.0)
 - **Amazon WorkSpaces Secure Browser** — managed browser (formerly WorkSpaces Web)
-- **Amazon WorkSpaces Core** — partner / bring-your-own VDI integration
+- **Amazon WorkSpaces Core** — partner / bring-your-own VDI integration, incl. **Core Managed
+  Instances** (the `workspaces-instances` API). Plain Core partner desktops appear via the standard
+  WorkSpaces API and are counted under WorkSpaces Personal.
 
 **Legacy names are accepted.** Ask using former names and the tools still route correctly, while
 output always uses the current name: **AppStream / AppStream 2.0 → Amazon WorkSpaces Applications**
@@ -32,7 +34,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 | Tool | Description |
 |------|-------------|
-| `get_euc_inventory_summary` | Cross-service inventory for a region: per-service counts by state, grand total, and any per-service collection errors. |
+| `get_euc_inventory_summary` | Cross-service inventory for a region (incl. **WorkSpaces Core Managed Instances**): per-service counts by state, grand total, and any per-service collection errors. |
 | `diagnose_workspace_connectivity` | Why a WorkSpaces Personal desktop may be unreachable — correlates WorkSpace state, connection status, directory health, and CloudWatch connection metrics into a ranked diagnosis. |
 | `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
 | `get_application_fleet_usage` | A WorkSpaces Applications fleet's **usage history** — AWS/AppStream capacity/utilization time-series over a window, with a plain-language summary (e.g. idle running capacity) (Tier 0). |

@@ -221,6 +221,31 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
         )
     )
 
+    instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
+    instances = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+        "ListWorkspaceInstances",
+        lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
+        default=[],
+    )
+    sections.append(
+        InventoryReportSection(
+            service=consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+            resource_type="ManagedInstance",
+            resources=[
+                ResourceRecord(
+                    id=i.get("WorkspaceInstanceId", ""),
+                    state=i.get("ProvisionState"),
+                    attributes={
+                        "ec2_instance_id": (i.get("EC2ManagedInstance") or {}).get("InstanceId")
+                    },
+                )
+                for i in (instances or [])
+            ],
+        )
+    )
+
     total = sum(len(s.resources) for s in sections)
     return InventoryReport(region=region, total_resources=total, sections=sections, errors=errors)
 

@@ -58,19 +58,29 @@ def test_collect_inventory_counts_and_states():
     secure_browser = types.SimpleNamespace(
         list_portals=lambda **_: {"portals": [{"portalStatus": "Active"}]},
     )
+    instances = types.SimpleNamespace(
+        list_workspace_instances=lambda **_: {
+            "WorkspaceInstances": [
+                {"WorkspaceInstanceId": "wsinst-1", "ProvisionState": "ALLOCATED"},
+                {"WorkspaceInstanceId": "wsinst-2", "ProvisionState": "ALLOCATED"},
+            ]
+        },
+    )
 
     factory = FakeFactory(
         {
             consts.WORKSPACES_API: workspaces,
             consts.APPSTREAM_API: appstream,
             consts.SECURE_BROWSER_API: secure_browser,
+            consts.WORKSPACES_INSTANCES_API: instances,
         }
     )
 
     summary = inventory.collect_inventory(factory, "us-east-1")
 
     assert summary.region == "us-east-1"
-    assert summary.total_resources == 3 + 1 + 2 + 2 + 1  # personal/pools/fleets/stacks/portals
+    # personal/pools/fleets/stacks/portals/managed-instances
+    assert summary.total_resources == 3 + 1 + 2 + 2 + 1 + 2
     assert summary.errors == []
 
     by_service = {s.service: s for s in summary.services}
@@ -86,6 +96,9 @@ def test_collect_inventory_counts_and_states():
     }
     assert apps == {"Fleet": 2, "Stack": 2}
     assert by_service[consts.PRODUCT_SECURE_BROWSER].count == 1
+    core = by_service[consts.PRODUCT_WORKSPACES_CORE_INSTANCES]
+    assert core.count == 2
+    assert core.by_state == {"ALLOCATED": 2}
 
 
 def test_collect_inventory_records_per_service_errors():
@@ -101,12 +114,16 @@ def test_collect_inventory_records_per_service_errors():
     )
     appstream = types.SimpleNamespace(describe_fleets=raise_fleets, describe_stacks=raise_stacks)
     secure_browser = types.SimpleNamespace(list_portals=lambda **_: {"portals": []})
+    instances = types.SimpleNamespace(
+        list_workspace_instances=lambda **_: {"WorkspaceInstances": []}
+    )
 
     factory = FakeFactory(
         {
             consts.WORKSPACES_API: workspaces,
             consts.APPSTREAM_API: appstream,
             consts.SECURE_BROWSER_API: secure_browser,
+            consts.WORKSPACES_INSTANCES_API: instances,
         }
     )
 

@@ -111,6 +111,23 @@ def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventor
             )
         )
 
+    instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
+    instances = try_call(
+        errors,
+        consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+        "ListWorkspaceInstances",
+        lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
+    )
+    if instances is not None:
+        services.append(
+            ServiceInventory(
+                service=consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+                resource_type="ManagedInstance",
+                count=len(instances),
+                by_state=count_by(instances, "ProvisionState"),
+            )
+        )
+
     total = sum(s.count for s in services)
     return EucInventorySummary(
         region=region,
