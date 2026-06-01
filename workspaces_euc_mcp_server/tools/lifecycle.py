@@ -19,12 +19,12 @@ separate, separately-gated module (``--enable-destructive``).
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Literal
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import ServiceError, TargetResult, WriteOutcome
-from ._common import try_call
+from ._common import try_call, writes
 
 _VALID_RUNNING_MODES = {"AUTO_STOP", "ALWAYS_ON"}
 
@@ -411,7 +411,10 @@ def register(
         return outcome.model_dump()
 
     async def modify_workspace_running_mode(
-        workspace_id: str, running_mode: str, confirm: bool = False, region: str | None = None
+        workspace_id: str,
+        running_mode: Literal["AUTO_STOP", "ALWAYS_ON"],
+        confirm: bool = False,
+        region: str | None = None,
     ) -> dict[str, Any]:
         """Change a WorkSpace's running mode (AUTO_STOP or ALWAYS_ON).
 
@@ -534,13 +537,28 @@ def register(
         )
         return outcome.model_dump()
 
-    mcp.add_tool(start_workspaces)
-    mcp.add_tool(stop_workspaces)
-    mcp.add_tool(reboot_workspaces)
-    mcp.add_tool(modify_workspace_running_mode)
-    mcp.add_tool(start_workspaces_pool)
-    mcp.add_tool(stop_workspaces_pool)
-    mcp.add_tool(update_workspaces_pool_capacity)
-    mcp.add_tool(start_application_fleet)
-    mcp.add_tool(stop_application_fleet)
-    mcp.add_tool(update_application_fleet_capacity)
+    mcp.add_tool(start_workspaces, annotations=writes("Start WorkSpaces", idempotent=True))
+    mcp.add_tool(stop_workspaces, annotations=writes("Stop WorkSpaces", idempotent=True))
+    mcp.add_tool(reboot_workspaces, annotations=writes("Reboot WorkSpaces"))
+    mcp.add_tool(
+        modify_workspace_running_mode,
+        annotations=writes("Modify WorkSpace running mode", idempotent=True),
+    )
+    mcp.add_tool(
+        start_workspaces_pool, annotations=writes("Start WorkSpaces Pool", idempotent=True)
+    )
+    mcp.add_tool(stop_workspaces_pool, annotations=writes("Stop WorkSpaces Pool", idempotent=True))
+    mcp.add_tool(
+        update_workspaces_pool_capacity,
+        annotations=writes("Update Pool capacity", idempotent=True),
+    )
+    mcp.add_tool(
+        start_application_fleet, annotations=writes("Start Applications fleet", idempotent=True)
+    )
+    mcp.add_tool(
+        stop_application_fleet, annotations=writes("Stop Applications fleet", idempotent=True)
+    )
+    mcp.add_tool(
+        update_application_fleet_capacity,
+        annotations=writes("Update fleet capacity", idempotent=True),
+    )

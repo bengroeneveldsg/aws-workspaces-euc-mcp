@@ -35,6 +35,33 @@ def test_application_fleet_tool_advertises_appstream_alias():
     assert "workspaces applications" in desc  # and the current name is present
 
 
+def test_every_tool_has_correct_annotations():
+    mcp = create_server(region="us-east-1", enable_writes=True, enable_destructive=True)
+    tools = {t.name: t for t in asyncio.run(mcp.list_tools())}
+
+    # Every tool carries annotations with a title.
+    for name, t in tools.items():
+        assert t.annotations is not None, f"{name} missing annotations"
+        assert t.annotations.title, f"{name} missing annotation title"
+
+    # Read-only tools.
+    ro = tools["get_euc_inventory_summary"].annotations
+    assert ro.readOnlyHint is True
+    assert ro.destructiveHint is False
+    assert ro.openWorldHint is False
+
+    # Lifecycle writes: not read-only, not destructive; reboot is not idempotent.
+    assert tools["start_workspaces"].annotations.readOnlyHint is False
+    assert tools["start_workspaces"].annotations.destructiveHint is False
+    assert tools["start_workspaces"].annotations.idempotentHint is True
+    assert tools["reboot_workspaces"].annotations.idempotentHint is False
+
+    # Destructive tools are flagged.
+    for name in ("terminate_workspaces", "rebuild_workspaces", "restore_workspace"):
+        assert tools[name].annotations.readOnlyHint is False
+        assert tools[name].annotations.destructiveHint is True
+
+
 def test_output_uses_current_product_names_only():
     # The product constants used in tool output must be the current official names.
     assert consts.PRODUCT_WORKSPACES_APPLICATIONS == "Amazon WorkSpaces Applications"

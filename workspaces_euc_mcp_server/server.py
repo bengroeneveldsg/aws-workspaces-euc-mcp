@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 
 from loguru import logger
@@ -110,7 +111,7 @@ def main() -> None:
         parser.error("--enable-destructive requires --enable-writes.")
 
     logger.remove()
-    logger.add(sys.stderr, level="INFO")
+    logger.add(sys.stderr, level=os.environ.get("FASTMCP_LOG_LEVEL", "INFO").upper())
 
     mcp = create_server(
         region=args.region,

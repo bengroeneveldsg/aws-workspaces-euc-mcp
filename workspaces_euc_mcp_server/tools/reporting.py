@@ -24,7 +24,7 @@ from ..models import (
     UnusedResourcesReport,
 )
 from . import cost
-from ._common import paginate, try_call
+from ._common import paginate, read_only, try_call
 
 
 def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> ResourceRecord:
@@ -524,6 +524,6 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         report = list_unused_resources_core(factory, region or factory.region, lookback_days)
         return report.model_dump()
 
-    mcp.add_tool(generate_inventory_report)
-    mcp.add_tool(audit_security_posture)
-    mcp.add_tool(list_unused_resources)
+    mcp.add_tool(generate_inventory_report, annotations=read_only("Inventory report"))
+    mcp.add_tool(audit_security_posture, annotations=read_only("Security posture audit"))
+    mcp.add_tool(list_unused_resources, annotations=read_only("List unused resources"))

@@ -14,7 +14,7 @@ is connected during a period); no CloudWatch agent is required.
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from .. import consts
 from ..clients import ClientFactory
@@ -28,7 +28,7 @@ from ..models import (
     WorkspaceUtilization,
 )
 from . import pricing
-from ._common import paginate, try_call
+from ._common import paginate, read_only, try_call
 
 
 def _daily_connected_values(cloudwatch: Any, workspace_id: str, lookback_days: int) -> list[float]:
@@ -293,7 +293,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def get_euc_cost_summary(
-        lookback_days: int = 30, granularity: str = "MONTHLY"
+        lookback_days: int = 30, granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY"
     ) -> dict[str, Any]:
         """Summarize EUC spend by service over a window (account-wide via Cost Explorer).
 
@@ -307,6 +307,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         summary = get_euc_cost_summary_core(factory, lookback_days, granularity)
         return summary.model_dump()
 
-    mcp.add_tool(analyze_workspace_utilization)
-    mcp.add_tool(recommend_running_mode)
-    mcp.add_tool(get_euc_cost_summary)
+    mcp.add_tool(
+        analyze_workspace_utilization, annotations=read_only("Analyze WorkSpace utilization")
+    )
+    mcp.add_tool(recommend_running_mode, annotations=read_only("Recommend running mode"))
+    mcp.add_tool(get_euc_cost_summary, annotations=read_only("EUC cost summary"))

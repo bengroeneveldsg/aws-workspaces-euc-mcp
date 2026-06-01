@@ -18,7 +18,7 @@ from typing import Any
 from .. import consts
 from ..clients import ClientFactory
 from ..models import Diagnosis, DirectoryHealthReport, Finding, ServiceError
-from ._common import try_call
+from ._common import read_only, try_call
 
 # AWS Directory Service directory IDs look like d-xxxxxxxxxx. WorkSpaces Pools and other
 # WorkSpaces-managed directories use other prefixes (e.g. wsd-...) that are NOT backed by AWS
@@ -790,7 +790,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         diag = diagnose_pool_core(factory, pool_id, region or factory.region, lookback_hours)
         return diag.model_dump()
 
-    mcp.add_tool(diagnose_workspace_connectivity)
-    mcp.add_tool(diagnose_application_fleet)
-    mcp.add_tool(check_directory_health)
-    mcp.add_tool(diagnose_pool)
+    mcp.add_tool(
+        diagnose_workspace_connectivity,
+        annotations=read_only("Diagnose WorkSpace connectivity"),
+    )
+    mcp.add_tool(diagnose_application_fleet, annotations=read_only("Diagnose Applications fleet"))
+    mcp.add_tool(check_directory_health, annotations=read_only("Check directory health"))
+    mcp.add_tool(diagnose_pool, annotations=read_only("Diagnose WorkSpaces Pool"))

@@ -19,7 +19,7 @@ from typing import Any
 from .. import consts
 from ..clients import ClientFactory
 from ..models import SecureBrowserPortalDetails, ServiceError, UsageHistory
-from ._common import try_call
+from ._common import read_only, try_call
 from .performance import _fetch_metric_series
 
 
@@ -181,5 +181,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return usage.model_dump()
 
-    mcp.add_tool(get_secure_browser_portal_details)
-    mcp.add_tool(get_secure_browser_portal_usage)
+    mcp.add_tool(
+        get_secure_browser_portal_details,
+        annotations=read_only("Secure Browser portal details"),
+    )
+    mcp.add_tool(
+        get_secure_browser_portal_usage, annotations=read_only("Secure Browser portal usage")
+    )

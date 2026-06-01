@@ -15,7 +15,7 @@ from typing import Any
 from .. import consts
 from ..clients import ClientFactory
 from ..models import EucInventorySummary, InventoryError, ServiceInventory
-from ._common import count_by, paginate, try_call
+from ._common import count_by, paginate, read_only, try_call
 
 
 def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventorySummary:
@@ -155,4 +155,4 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         summary = collect_inventory(factory, target_region)
         return summary.model_dump()
 
-    mcp.add_tool(get_euc_inventory_summary)
+    mcp.add_tool(get_euc_inventory_summary, annotations=read_only("EUC inventory summary"))
