@@ -19,6 +19,7 @@ SECURE_BROWSER_API = "workspaces-web"  # Amazon WorkSpaces Secure Browser (forme
 WORKSPACES_INSTANCES_API = "workspaces-instances"  # Amazon WorkSpaces Core Managed Instances.
 DIRECTORY_API = "ds"  # AWS Directory Service (shared dependency).
 CLOUDWATCH_API = "cloudwatch"  # Telemetry for diagnostics/cost tools.
+EC2_API = "ec2"  # Used to enrich WorkSpaces Core Managed Instances with EC2 details.
 COST_EXPLORER_API = "ce"  # Cost Explorer (global; account-wide, not region-scoped).
 PRICING_API = "pricing"  # AWS Price List (global).
 

@@ -59,7 +59,8 @@
         "ds:DescribeDirectories",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
-        "application-autoscaling:DescribeScalingActivities"
+        "application-autoscaling:DescribeScalingActivities",
+        "ec2:DescribeInstances"
       ],
       "Resource": "*"
     },
