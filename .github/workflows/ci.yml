@@ -16,13 +16,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Install
-        run: pip install -e ".[dev]"
+      - name: Install (into .venv to match the pyright config)
+        run: |
+          python -m venv .venv
+          . .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
       - name: Lint
-        run: ruff check .
+        run: . .venv/bin/activate && ruff check .
       - name: Format check
-        run: ruff format --check .
+        run: . .venv/bin/activate && ruff format --check .
+      - name: Type check
+        run: . .venv/bin/activate && pyright
       - name: Security scan
-        run: bandit -c pyproject.toml -r workspaces_euc_mcp_server
+        run: . .venv/bin/activate && bandit -c pyproject.toml -r workspaces_euc_mcp_server
       - name: Test (includes no-embedded-secrets guardrail)
-        run: pytest -q
+        run: . .venv/bin/activate && pytest -q

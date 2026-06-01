@@ -1,5 +1,7 @@
 # WorkSpaces EUC MCP Server
 
+[![CI](https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/bengroeneveldsg/aws-workspaces-euc-mcp/actions/workflows/ci.yml)
+
 An [MCP](https://modelcontextprotocol.io) server that gives administrators AI-assisted
 **inventory, troubleshooting, and cost/utilization optimization** across the Amazon WorkSpaces
 End User Computing (EUC) portfolio:
