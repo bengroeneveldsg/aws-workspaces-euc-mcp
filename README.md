@@ -171,6 +171,56 @@ Running from a source checkout instead of `uvx`:
 }
 ```
 
+The two blocks above are the standard `mcpServers` shape used by most clients (Claude Desktop,
+Cursor, etc.). Some clients use a **form** instead of raw JSON — see the example below.
+
+### Example: Amazon Quick (Desktop)
+
+Amazon Quick's **Capabilities → MCP → Add MCP** uses a form rather than JSON. Choose connection
+type **Local** ("Run a command on your machine") and fill in:
+
+| Field | Value |
+|-------|-------|
+| **Name** | `WorkSpaces EUC` |
+| **Command** | `uvx` |
+| **Arguments** | `workspaces-euc-mcp-server@latest --region us-east-1` |
+| **Description** | `Admin tools for Amazon WorkSpaces EUC — inventory, troubleshooting, cost/utilization. Read-only.` |
+| **Environment variables** | `AWS_PROFILE` = `your-euc-admin-profile`  ·  `AWS_REGION` = `us-east-1` |
+| **Timeout (seconds)** | `60` |
+
+Notes:
+- Set `--region` (in Arguments) and `AWS_REGION` to where your WorkSpaces actually live; keep the
+  two in sync.
+- **Bump the timeout from the default 30 → 60–120 for the first run** — `uvx` downloads the package
+  on first launch, which can exceed 30 s and look like a failed connection. Later starts are fast.
+- If `uvx` isn't on your `PATH`, use Command `workspaces-euc-mcp-server` (after
+  `pip install workspaces-euc-mcp-server`) with Arguments `--region us-east-1`, or Command `python`
+  with Arguments `-m workspaces_euc_mcp_server.server --region us-east-1`.
+- To enable writes/destructive, append the flags to **Arguments** (e.g.
+  `… --enable-writes --max-bulk-targets 10`) — and attach the matching IAM tier (see
+  [the safety gates](#enabling-write--destructive-tools--the-safety-gates)).
+- A local MCP server has **no "Sign in" button** (that's a Quick *Connections* feature). It uses
+  your AWS credential chain, so authenticate first — e.g. `aws sso login --profile your-profile` for
+  SSO — then the server connects. See [AWS authentication](#aws-authentication).
+
+## AWS authentication
+
+The server uses the **standard AWS credential chain** — it does not handle sign-in itself. Provide
+credentials however boto3 expects them:
+
+- **IAM Identity Center (SSO):** configure an `sso-session` profile, then `aws sso login --profile
+  <name>`. With the modern `sso-session` format, botocore **auto-refreshes** the token for the
+  session window, so you log in once rather than every few hours. (Signing into the AWS Console or
+  access portal in a browser does **not** create the on-disk token the server needs — only
+  `aws sso login` does.)
+- **Static / temporary keys:** a named profile in `~/.aws/credentials`, or `AWS_ACCESS_KEY_ID` /
+  `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` env vars.
+- **Assumed role / multi-account:** see [Multi-account / MSP](#multi-account--msp).
+
+If calls fail with an expired-token / `UnauthorizedException` error, your session has lapsed —
+re-authenticate (for SSO, `aws sso login --profile <name>`) and retry. Nothing in the MCP config
+changes.
+
 ## Enabling write / destructive tools — the safety gates
 
 The config above is **read-only**: the write and destructive tools are not even registered, so
