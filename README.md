@@ -171,6 +171,80 @@ Running from a source checkout instead of `uvx`:
 }
 ```
 
+## Enabling write / destructive tools — the safety gates
+
+The config above is **read-only**: the write and destructive tools are not even registered, so
+they cannot be called no matter what the model or the IAM policy allows. Enabling them is a
+deliberate act, and **IAM permissions alone are not enough**. A destructive call (e.g.
+`terminate_workspaces`) only runs after clearing **all four** of these independent gates:
+
+| # | Gate | Where it lives | What it does |
+|---|------|----------------|--------------|
+| 1 | **Launch flag** | The `args` in your MCP-client config | Destructive tools aren't registered unless the server was started with **both** `--enable-writes` **and** `--enable-destructive`. Default launch = read-only. |
+| 2 | **IAM tier** | The AWS profile / assumed role | The credentials must carry the matching tier ([`iam/tier2-lifecycle.json`](iam/tier2-lifecycle.json) for writes, [`iam/tier3-destructive.json`](iam/tier3-destructive.json) for destructive). Without it, AWS denies the call. |
+| 3 | **`confirm=true`** | The tool call | Every mutation is **dry-run by default** — it returns a plan and changes nothing. You must explicitly pass `confirm=true`. |
+| 4 | **Typed acknowledgement + blast-radius cap** | The tool call | Destructive ops also require the **exact** phrase (`acknowledge="TERMINATE"` / `"REBUILD"` / `"RESTORE"`) and must stay within `--max-bulk-targets`. Wrong phrase or too many targets → refused, nothing changes. |
+
+> Gates **1–2** are the real security boundary (config + AWS-enforced IAM). Gates **3–4** are
+> in-tool guardrails against an over-eager agent or a fat-fingered single call — they are **not** a
+> substitute for IAM. The genuine least-privilege control is: **don't grant Tier 2/3 and don't pass
+> the flags unless you truly want those operations available.** For an extra backstop, scope the
+> Tier 2/3 policy with resource tags / conditions so even an enabled server can only touch a bounded
+> set of resources.
+
+**MCP-client config — writes enabled (Tier 2):** add the flag to `args` and attach the Tier 2 policy.
+
+```json
+{
+  "mcpServers": {
+    "workspaces-euc": {
+      "command": "uvx",
+      "args": ["workspaces-euc-mcp-server@latest", "--enable-writes", "--max-bulk-targets", "10"],
+      "env": {
+        "AWS_PROFILE": "your-euc-admin-profile",
+        "AWS_REGION": "us-east-1"
+      }
+    }
+  }
+}
+```
+
+**MCP-client config — destructive enabled (Tier 3):** both flags, and attach the Tier 3 policy. Use
+a tightly-scoped profile.
+
+```json
+{
+  "mcpServers": {
+    "workspaces-euc": {
+      "command": "uvx",
+      "args": [
+        "workspaces-euc-mcp-server@latest",
+        "--enable-writes",
+        "--enable-destructive",
+        "--max-bulk-targets", "5"
+      ],
+      "env": {
+        "AWS_PROFILE": "your-euc-admin-profile",
+        "AWS_REGION": "us-east-1"
+      }
+    }
+  }
+}
+```
+
+Even with the destructive config above, a call still does nothing until gates 3–4 are satisfied:
+
+```text
+terminate_workspaces(workspace_ids=["ws-abc123"], confirm=true, acknowledge="TERMINATE")
+```
+
+Equivalent CLI launches (e.g. for the Docker entrypoint or a shell):
+
+```bash
+workspaces-euc-mcp-server --enable-writes --max-bulk-targets 10                      # Tier 2 only
+workspaces-euc-mcp-server --enable-writes --enable-destructive --max-bulk-targets 5  # + Tier 3
+```
+
 ## Command-line flags
 
 | Flag | Default | Purpose |
@@ -226,19 +300,9 @@ pick the right tool. A few examples:
 | "Reboot these three stuck desktops." | `reboot_workspaces` (dry-run, then `confirm=true`) |
 
 **Write/destructive tools are off unless enabled.** Mutations show a dry-run plan first; to execute
-you pass `confirm=true` (and, for destructive ops, the exact acknowledge phrase). For example, a
-full destructive run looks like:
-
-```text
-terminate_workspaces(workspace_ids=["ws-abc123"], confirm=true, acknowledge="TERMINATE")
-```
-
-Launch with writes/destructive enabled:
-
-```bash
-workspaces-euc-mcp-server --enable-writes                      # Tier 2 power/capacity tools
-workspaces-euc-mcp-server --enable-writes --enable-destructive # + Tier 3 terminate/rebuild/restore
-```
+you pass `confirm=true` (and, for destructive ops, the exact acknowledge phrase). See
+[Enabling write / destructive tools — the safety gates](#enabling-write--destructive-tools--the-safety-gates)
+for how to turn them on (MCP-client config + IAM) and the four gates each call must clear.
 
 ## Development
 
