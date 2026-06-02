@@ -51,7 +51,7 @@ audit, and governance tools:
 | `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
 | `diagnose_pool` | A WorkSpaces Pool's health — state, pool errors, user-session capacity, backing directory health, and session-utilization. |
 | `get_application_fleet_usage` | A WorkSpaces Applications fleet's **usage history** — AWS/AppStream capacity/utilization time-series over a window, with a plain-language summary (e.g. idle running capacity) (Tier 0). |
-| `check_directory_health` | Registration state and AWS Directory Service stage for one or all WorkSpaces-registered directories. |
+| `check_directory_health` | Registration state, AWS Directory Service stage, and **registration properties** (target **OU**, custom security group, local-admin / internet-access / maintenance-mode flags) for one or all WorkSpaces-registered directories. |
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates, with an **estimated $/mo saving** where the bundle price can be matched (Tier 1). |
 | `get_workspace_performance` | Native CPU / memory / disk / GPU / latency / uptime metrics per desktop from `AWS/WorkSpaces` — no CloudWatch agent (Tier 0). |
@@ -64,7 +64,7 @@ audit, and governance tools:
 | `audit_application_images` | Audits WorkSpaces Applications (AppStream 2.0) **images and image builders** — flags stale base images (unpatched OS), pinned/old AppStream agents, non-AVAILABLE/errored images, SHARED cross-account visibility, and **image builders left RUNNING** (cost + admin surface) (Tier 0). |
 | `get_euc_audit_trail` | **"Who changed what"** — recent EUC management events from CloudTrail (last 90 days, no trail required) across all services; mutations-only by default, flags destructive actions and errors (e.g. AccessDenied) (Tier 0). |
 | `get_euc_service_quotas` | **Service-quota limits + usage headroom** per EUC service; pairs limits with current usage (where AWS publishes a usage metric) to flag quotas approaching their limit — capacity planning (Tier 0). |
-| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, and attached policies (Tier 0). |
+| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, attached policies, and — when configured — the **data-protection redaction config** (which built-in/custom patterns are redacted, confidence level, enforced/exempt URLs) (Tier 0). |
 | `get_secure_browser_portal_usage` | A Secure Browser portal's `AWS/WorkSpacesWeb` session metrics over a window (empty until the portal has sessions; Session Logger gives detail) (Tier 0). |
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 

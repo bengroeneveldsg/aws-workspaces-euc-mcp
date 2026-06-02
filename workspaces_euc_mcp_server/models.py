@@ -156,6 +156,13 @@ class SecureBrowserPortalDetails(BaseModel):
     network: dict[str, object] = Field(default_factory=dict)
     has_browser_policy: bool = False
     has_data_protection: bool = False
+    data_protection: dict[str, object] = Field(
+        default_factory=dict,
+        description=(
+            "Resolved inline-redaction configuration when data protection is attached: redacted "
+            "patterns (built-in + custom), global confidence level, and enforced/exempt URLs."
+        ),
+    )
     errors: list[ServiceError] = Field(default_factory=list)
 
 

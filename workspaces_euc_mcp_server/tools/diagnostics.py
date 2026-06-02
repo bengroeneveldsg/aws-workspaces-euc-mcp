@@ -279,9 +279,22 @@ def _diagnose_directory_into(
     )
     dirs = (reg or {}).get("Directories", [])
     if dirs:
-        reg_state = dirs[0].get("State", "UNKNOWN")
+        d0 = dirs[0]
+        reg_state = d0.get("State", "UNKNOWN")
         if signals is not None:
             signals[f"{signals_prefix}registration_state"] = reg_state
+            signals[f"{signals_prefix}directory_type"] = d0.get("DirectoryType")
+            signals[f"{signals_prefix}workspace_type"] = d0.get("WorkspaceType")
+            # Registration-level WorkspaceCreationProperties — notably the target OU. Only AD-backed
+            # directories carry a DefaultOu; WorkSpaces-managed (Entra/internal) ones return None.
+            wcp = d0.get("WorkspaceCreationProperties") or {}
+            signals[f"{signals_prefix}default_ou"] = wcp.get("DefaultOu")
+            signals[f"{signals_prefix}custom_security_group_id"] = wcp.get("CustomSecurityGroupId")
+            signals[f"{signals_prefix}user_enabled_as_local_administrator"] = wcp.get(
+                "UserEnabledAsLocalAdministrator"
+            )
+            signals[f"{signals_prefix}enable_internet_access"] = wcp.get("EnableInternetAccess")
+            signals[f"{signals_prefix}enable_maintenance_mode"] = wcp.get("EnableMaintenanceMode")
         if reg_state != "REGISTERED":
             findings.append(
                 Finding(

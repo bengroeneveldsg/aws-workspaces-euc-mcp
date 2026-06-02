@@ -65,6 +65,49 @@ def test_portal_details_resolves_settings():
     assert d.has_data_protection is False
 
 
+def test_portal_details_resolves_data_protection_config():
+    web = types.SimpleNamespace(
+        get_portal=lambda **_: {
+            "portal": {
+                "portalArn": "arn:portal/2",
+                "displayName": "Okta",
+                "dataProtectionSettingsArn": "arn:dp/1",
+            }
+        },
+        get_data_protection_settings=lambda **_: {
+            "dataProtectionSettings": {
+                "displayName": "ip-address-dp",
+                "inlineRedactionConfiguration": {
+                    "inlineRedactionPatterns": [
+                        {"builtInPatternId": "ipAddr"},
+                        {"builtInPatternId": "macAddr"},
+                        {
+                            "customPattern": {
+                                "patternName": "EmployeeId",
+                                "keywordRegex": "EMP-\\d+",
+                            }
+                        },
+                    ],
+                    "globalEnforcedUrls": ["*"],
+                    "globalConfidenceLevel": 2,
+                },
+            }
+        },
+    )
+    factory = FakeFactory({consts.SECURE_BROWSER_API: web})
+
+    d = secure_browser.get_secure_browser_portal_details_core(factory, "arn:portal/2", "us-east-1")
+
+    assert d.has_data_protection is True
+    dp = d.data_protection
+    assert dp["display_name"] == "ip-address-dp"
+    assert dp["redacted_pattern_count"] == 3
+    assert dp["builtin_patterns"] == ["ipAddr", "macAddr"]
+    assert dp["custom_patterns"][0]["name"] == "EmployeeId"
+    assert dp["global_confidence_level"] == 2
+    assert dp["global_enforced_urls"] == ["*"]
+
+
 def test_portal_usage_empty_explains_session_model():
     cw = types.SimpleNamespace(
         get_metric_data=lambda **_: {"MetricDataResults": []}  # no data
