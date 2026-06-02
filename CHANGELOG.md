@@ -5,6 +5,12 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `get_euc_cost_summary` now returns `by_period` — a per-bucket time series (one entry per day for
+  `DAILY`, per month for `MONTHLY`), each with its own per-service split. Previously the tool
+  collapsed all periods into per-service totals, so a `DAILY` request lost the daily breakdown and
+  clients had to query each day individually to chart trends.
+
 ## [0.1.3] - 2026-06-02
 
 ### Fixed

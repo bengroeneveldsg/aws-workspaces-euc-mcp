@@ -231,6 +231,15 @@ class CostLineItem(BaseModel):
     amount: float
 
 
+class CostPeriod(BaseModel):
+    """One time bucket (a day or a month, per the requested granularity)."""
+
+    start: str
+    end: str
+    total: float
+    by_service: list[CostLineItem] = Field(default_factory=list)
+
+
 class CostSummary(BaseModel):
     """Cost rollup for the EUC portfolio over a time window (account-wide)."""
 
@@ -244,6 +253,13 @@ class CostSummary(BaseModel):
     currency: str = "USD"
     total: float
     by_service: list[CostLineItem] = Field(default_factory=list)
+    by_period: list[CostPeriod] = Field(
+        default_factory=list,
+        description=(
+            "Per-bucket time series (one entry per day for DAILY, per month for MONTHLY). "
+            "Use this for charts / trend analysis."
+        ),
+    )
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
