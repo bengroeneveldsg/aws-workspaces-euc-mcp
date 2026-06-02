@@ -18,6 +18,7 @@ from .tools import (
     cost,
     destructive,
     diagnostics,
+    images,
     inventory,
     lifecycle,
     performance,
@@ -49,6 +50,7 @@ def create_server(
     reporting.register(mcp, factory)
     performance.register(mcp, factory)
     secure_browser.register(mcp, factory)
+    images.register(mcp, factory)
 
     if enable_writes:
         logger.info(

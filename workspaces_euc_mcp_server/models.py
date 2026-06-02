@@ -347,3 +347,50 @@ class WriteOutcome(BaseModel):
     results: list[TargetResult] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
+
+
+class ApplicationImageFinding(BaseModel):
+    """An audit observation about a WorkSpaces Applications image or image builder."""
+
+    target: str
+    severity: str = Field(description='"info" or "warning".')
+    issue: str
+
+
+class ApplicationImageInfo(BaseModel):
+    name: str
+    visibility: str | None = None
+    platform: str | None = None
+    state: str | None = None
+    agent_version: str | None = None
+    application_count: int = 0
+    applications: list[str] = Field(default_factory=list)
+    error_count: int = 0
+    created: str | None = None
+    base_image_released: str | None = None
+    base_image_age_days: int | None = None
+    allow_fleet: bool | None = None
+    allow_image_builder: bool | None = None
+
+
+class ApplicationImageBuilderInfo(BaseModel):
+    name: str
+    state: str | None = None
+    platform: str | None = None
+    instance_type: str | None = None
+    agent_version: str | None = None
+    created: str | None = None
+
+
+class ApplicationImageAuditReport(BaseModel):
+    """Audit of WorkSpaces Applications (AppStream 2.0) images and image builders."""
+
+    region: str | None = None
+    image_count: int = 0
+    image_builder_count: int = 0
+    running_image_builders: int = 0
+    images: list[ApplicationImageInfo] = Field(default_factory=list)
+    image_builders: list[ApplicationImageBuilderInfo] = Field(default_factory=list)
+    findings: list[ApplicationImageFinding] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)

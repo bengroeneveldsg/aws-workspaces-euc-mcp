@@ -23,7 +23,9 @@
         "appstream:DescribeStacks",
         "appstream:ListAssociatedFleets",
         "appstream:ListAssociatedStacks",
-        "appstream:DescribeSessions"
+        "appstream:DescribeSessions",
+        "appstream:DescribeImages",
+        "appstream:DescribeImageBuilders"
       ],
       "Resource": "*"
     },
