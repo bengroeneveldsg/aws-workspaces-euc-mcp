@@ -130,24 +130,30 @@ def test_cost_summary_aggregates_by_service():
 
 
 def test_cost_summary_keyword_matches_variants_and_excludes_noneuc():
-    # AppStream under a NON-exact name (the bug that hid WorkSpaces Applications spend) must still
-    # be captured, while non-EUC services (EC2) are excluded.
+    # Real-world Cost Explorer SERVICE names: AppStream now bills as "Amazon WorkSpaces
+    # Applications" (the rebrand that the old exact-match list missed) and must be captured;
+    # "Amazon WorkSpaces Thin Client" contains "workspaces" but is OUT of scope and must be
+    # excluded; non-EUC services (EC2) are excluded.
     ce = types.SimpleNamespace(
         get_cost_and_usage=lambda **_: {
             "ResultsByTime": [
                 {
                     "Groups": [
                         {
-                            "Keys": ["Amazon AppStream 2.0"],
-                            "Metrics": {"UnblendedCost": {"Amount": "25.00", "Unit": "USD"}},
+                            "Keys": ["Amazon WorkSpaces Applications"],
+                            "Metrics": {"UnblendedCost": {"Amount": "1006.85", "Unit": "USD"}},
                         },
                         {
-                            "Keys": ["Amazon WorkSpaces Secure Browser"],
-                            "Metrics": {"UnblendedCost": {"Amount": "5.00", "Unit": "USD"}},
+                            "Keys": ["Amazon WorkSpaces"],
+                            "Metrics": {"UnblendedCost": {"Amount": "694.97", "Unit": "USD"}},
+                        },
+                        {
+                            "Keys": ["Amazon WorkSpaces Thin Client"],
+                            "Metrics": {"UnblendedCost": {"Amount": "6.00", "Unit": "USD"}},
                         },
                         {
                             "Keys": ["Amazon Elastic Compute Cloud - Compute"],
-                            "Metrics": {"UnblendedCost": {"Amount": "999.00", "Unit": "USD"}},
+                            "Metrics": {"UnblendedCost": {"Amount": "485.58", "Unit": "USD"}},
                         },
                     ]
                 }
@@ -158,11 +164,12 @@ def test_cost_summary_keyword_matches_variants_and_excludes_noneuc():
 
     summary = cost.get_euc_cost_summary_core(factory, lookback_days=30)
 
+    # WorkSpaces Applications captured, Thin Client + EC2 excluded.
     assert {li.service for li in summary.by_service} == {
-        "Amazon AppStream 2.0",
-        "Amazon WorkSpaces Secure Browser",
+        "Amazon WorkSpaces Applications",
+        "Amazon WorkSpaces",
     }
-    assert summary.total == 30.0  # EC2 excluded
+    assert summary.total == 1701.82
 
 
 def test_cost_summary_explicit_date_range_overrides_lookback():

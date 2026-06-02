@@ -202,6 +202,8 @@ def _is_euc_service(service_name: str) -> bool:
     (e.g. "Amazon AppStream 2.0") are never silently excluded.
     """
     name = service_name.lower()
+    if any(token in name for token in consts.EUC_COST_EXPLORER_EXCLUDE_TOKENS):
+        return False
     return any(token in name for token in consts.EUC_COST_EXPLORER_SERVICE_TOKENS)
 
 
