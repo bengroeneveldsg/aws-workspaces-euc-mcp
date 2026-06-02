@@ -20,6 +20,7 @@ from .. import consts
 from ..clients import ClientFactory
 from ..models import (
     CostLineItem,
+    CostPeriod,
     CostSummary,
     Recommendation,
     RecommendationReport,
@@ -227,8 +228,10 @@ def get_euc_cost_summary_core(
 
     # Group by SERVICE across ALL spend and select EUC services in code (see _is_euc_service).
     # A server-side exact-name SERVICE filter would silently drop any naming variant — the very
-    # bug that hid AppStream / WorkSpaces Applications spend. Page through all results.
+    # bug that hid AppStream / WorkSpaces Applications spend. Page through all results, keeping both
+    # the overall per-service totals and the per-period (daily/monthly) breakdown for charts.
     totals_by_service: dict[str, float] = {}
+    per_period: dict[tuple[str, str], dict[str, float]] = {}
     currency = "USD"
     next_token: str | None = None
     while True:
@@ -250,6 +253,8 @@ def get_euc_cost_summary_core(
         if not response:
             break
         for period in response.get("ResultsByTime", []):
+            tp = period.get("TimePeriod", {})
+            bucket = per_period.setdefault((tp.get("Start", ""), tp.get("End", "")), {})
             for group in period.get("Groups", []):
                 service = (group.get("Keys") or ["Unknown"])[0]
                 if not _is_euc_service(service):
@@ -258,6 +263,7 @@ def get_euc_cost_summary_core(
                 amount = float(metric.get("Amount", 0.0))
                 currency = metric.get("Unit", currency)
                 totals_by_service[service] = totals_by_service.get(service, 0.0) + amount
+                bucket[service] = bucket.get(service, 0.0) + amount
         next_token = response.get("NextPageToken")
         if not next_token:
             break
@@ -267,6 +273,18 @@ def get_euc_cost_summary_core(
         for s, a in sorted(totals_by_service.items(), key=lambda kv: kv[1], reverse=True)
     ]
     total = round(sum(item.amount for item in by_service), 2)
+    by_period = [
+        CostPeriod(
+            start=p_start,
+            end=p_end,
+            total=round(sum(svc.values()), 2),
+            by_service=[
+                CostLineItem(service=s, amount=round(a, 2))
+                for s, a in sorted(svc.items(), key=lambda kv: kv[1], reverse=True)
+            ],
+        )
+        for (p_start, p_end), svc in sorted(per_period.items())
+    ]
 
     return CostSummary(
         start=start,
@@ -275,12 +293,15 @@ def get_euc_cost_summary_core(
         currency=currency,
         total=total,
         by_service=by_service,
+        by_period=by_period,
         errors=errors,
         notes=[
             "EUC services are selected by matching the Cost Explorer SERVICE name against the EUC "
             "keyword set (workspaces / appstream), so naming variants are not dropped.",
             "Cost Explorer bills WorkSpaces Personal, Pools, and Core together under the single "
             "'Amazon WorkSpaces' service; they cannot be separated via the SERVICE dimension.",
+            "by_period gives the per-bucket time series (per day for DAILY, per month for MONTHLY) "
+            "for charts/trends; by_service is the total across the whole window.",
         ],
     )
 
@@ -334,6 +355,11 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         Applications/AppStream; and Secure Browser). Services are matched by keyword, so naming
         variants are never dropped. Cost Explorer is not region-scoped, so figures are account-wide.
         Read-only.
+
+        Returns both `by_service` (totals across the whole window) and `by_period` (a per-bucket
+        time series — one entry per day for DAILY, per month for MONTHLY — each with its own
+        per-service split). Use `by_period` with granularity="DAILY" to chart daily trends in a
+        single call.
 
         For a specific calendar month, pass start_date/end_date instead of lookback_days — Cost
         Explorer's end is EXCLUSIVE, so for May 2026 use start_date="2026-05-01",

@@ -172,6 +172,49 @@ def test_cost_summary_keyword_matches_variants_and_excludes_noneuc():
     assert summary.total == 1701.82
 
 
+def test_cost_summary_daily_returns_per_period_time_series():
+    # DAILY granularity must preserve the per-day breakdown in by_period (for charts), not just
+    # collapse everything into by_service totals.
+    ce = types.SimpleNamespace(
+        get_cost_and_usage=lambda **_: {
+            "ResultsByTime": [
+                {
+                    "TimePeriod": {"Start": "2026-05-01", "End": "2026-05-02"},
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon WorkSpaces Applications"],
+                            "Metrics": {"UnblendedCost": {"Amount": "30.00", "Unit": "USD"}},
+                        }
+                    ],
+                },
+                {
+                    "TimePeriod": {"Start": "2026-05-02", "End": "2026-05-03"},
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon WorkSpaces Applications"],
+                            "Metrics": {"UnblendedCost": {"Amount": "45.00", "Unit": "USD"}},
+                        }
+                    ],
+                },
+            ]
+        }
+    )
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    summary = cost.get_euc_cost_summary_core(
+        factory, granularity="DAILY", start_date="2026-05-01", end_date="2026-05-03"
+    )
+
+    # Aggregate total preserved...
+    assert summary.total == 75.0
+    # ...and the daily series is available, ordered by date.
+    assert [(p.start, p.total) for p in summary.by_period] == [
+        ("2026-05-01", 30.0),
+        ("2026-05-02", 45.0),
+    ]
+    assert summary.by_period[0].by_service[0].service == "Amazon WorkSpaces Applications"
+
+
 def test_cost_summary_explicit_date_range_overrides_lookback():
     captured: dict = {}
 
