@@ -40,7 +40,9 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 ## Status
 
-**Phase 1 (in progress)** — read-only inventory and troubleshooting tools:
+**Shipped** (published to PyPI + GHCR) — **21 read-only tools** (Tiers 0–1) plus opt-in **10 write**
+(Tier 2) and **3 destructive** (Tier 3) tools. The read-only inventory, troubleshooting, cost,
+audit, and governance tools:
 
 | Tool | Description |
 |------|-------------|
