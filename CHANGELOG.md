@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format is based on
 ## [Unreleased]
 
 ### Added
+- `get_euc_audit_trail` — a new read-only (Tier 0) tool that reports recent EUC management activity
+  from CloudTrail (always-on `LookupEvents`, 90-day window, no trail required) across WorkSpaces
+  Personal/Pools/Core, WorkSpaces Applications, Secure Browser, and Core Managed Instances.
+  Mutations-only by default ("who created/modified/terminated what"); flags destructive actions and
+  errors (e.g. AccessDenied). Adds `cloudtrail:LookupEvents` to every IAM tier.
+- `get_euc_service_quotas` — a new read-only (Tier 0) tool that reports Service Quotas limits per
+  EUC service and, where AWS publishes a linked usage metric (`AWS/Usage` `ResourceCount`), the
+  current usage and utilisation %, flagging quotas approaching their limit (capacity planning).
+  Adds `servicequotas:ListServiceQuotas` / `GetServiceQuota` to every IAM tier.
 - `audit_application_images` — a new read-only (Tier 0) tool that audits WorkSpaces Applications
   (AppStream 2.0) **images and image builders**: lists your PRIVATE/SHARED images (skipping PUBLIC
   base images) and flags stale base images (likely unpatched OS), pinned/old AppStream agents,

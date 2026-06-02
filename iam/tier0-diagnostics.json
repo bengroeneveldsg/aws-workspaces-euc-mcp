@@ -62,7 +62,10 @@
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
         "application-autoscaling:DescribeScalingActivities",
-        "ec2:DescribeInstances"
+        "ec2:DescribeInstances",
+        "cloudtrail:LookupEvents",
+        "servicequotas:ListServiceQuotas",
+        "servicequotas:GetServiceQuota"
       ],
       "Resource": "*"
     }

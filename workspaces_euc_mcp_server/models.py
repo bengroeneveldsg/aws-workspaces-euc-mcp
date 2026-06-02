@@ -349,12 +349,70 @@ class WriteOutcome(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class GovernanceFinding(BaseModel):
+    """A governance audit observation (target + severity + human-readable issue)."""
+
+    target: str
+    severity: str = Field(description='"info" or "warning".')
+    issue: str
+
+
 class ApplicationImageFinding(BaseModel):
     """An audit observation about a WorkSpaces Applications image or image builder."""
 
     target: str
     severity: str = Field(description='"info" or "warning".')
     issue: str
+
+
+class AuditEvent(BaseModel):
+    """One EUC management event from CloudTrail."""
+
+    time: str
+    service: str
+    event_name: str
+    username: str | None = None
+    source_ip: str | None = None
+    aws_region: str | None = None
+    resources: list[str] = Field(default_factory=list)
+    error_code: str | None = None
+    read_only: bool = False
+
+
+class AuditTrailReport(BaseModel):
+    """CloudTrail-derived audit of recent EUC management activity (account-wide, 90-day max)."""
+
+    region: str | None = None
+    lookback_days: int = 7
+    include_read_only: bool = False
+    total_events: int = 0
+    by_event_name: dict[str, int] = Field(default_factory=dict)
+    by_user: dict[str, int] = Field(default_factory=dict)
+    events: list[AuditEvent] = Field(default_factory=list)
+    findings: list[GovernanceFinding] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class QuotaItem(BaseModel):
+    service: str
+    quota_name: str
+    quota_code: str
+    limit: float
+    adjustable: bool = False
+    usage: float | None = None
+    utilization_pct: float | None = None
+
+
+class ServiceQuotaReport(BaseModel):
+    """Service Quotas limits (and usage headroom where AWS publishes a usage metric) for EUC."""
+
+    region: str | None = None
+    approaching_pct: float = 80.0
+    quotas: list[QuotaItem] = Field(default_factory=list)
+    findings: list[GovernanceFinding] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 class ApplicationImageInfo(BaseModel):
