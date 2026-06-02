@@ -5,6 +5,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `audit_application_images` — a new read-only (Tier 0) tool that audits WorkSpaces Applications
+  (AppStream 2.0) **images and image builders**: lists your PRIVATE/SHARED images (skipping PUBLIC
+  base images) and flags stale base images (likely unpatched OS), pinned/old AppStream agents,
+  non-AVAILABLE or errored images, SHARED cross-account visibility, and image builders left
+  **RUNNING** (per-hour cost + interactive admin surface). Adds `appstream:DescribeImages` and
+  `appstream:DescribeImageBuilders` to every IAM tier.
+
 ## [0.1.4] - 2026-06-02
 
 ### Added
