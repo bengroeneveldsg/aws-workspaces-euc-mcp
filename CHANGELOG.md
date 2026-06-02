@@ -5,6 +5,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-06-02
+
 ### Added
 - `get_euc_audit_trail` — a new read-only (Tier 0) tool that reports recent EUC management activity
   from CloudTrail (always-on `LookupEvents`, 90-day window, no trail required) across WorkSpaces
@@ -21,6 +23,11 @@ All notable changes to this project are documented here. The format is based on
   non-AVAILABLE or errored images, SHARED cross-account visibility, and image builders left
   **RUNNING** (per-hour cost + interactive admin surface). Adds `appstream:DescribeImages` and
   `appstream:DescribeImageBuilders` to every IAM tier.
+
+### Docs
+- README and DESIGN.md reconciled to the shipped state: 21 read-only tools (Tiers 0–1) + 10 write
+  (Tier 2) + 3 destructive (Tier 3); `tools/` layout, §5 tool catalog (image audit + governance),
+  and the Tier 0 IAM action list all updated.
 
 ## [0.1.4] - 2026-06-02
 

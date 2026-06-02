@@ -4,12 +4,14 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 18 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 21 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
-> guards. All four IAM policy tiers ship in `iam/`. CI (ruff/format/pyright/bandit/pytest on
-> Py 3.11–3.13) is green; published to PyPI and GHCR. **`README.md` is the source of truth for the
-> live tool catalog and exact tool names** — §5 below records the original design intent and is
-> kept reconciled with what shipped. See `CHANGELOG.md` for per-version detail.
+> guards. Read-only coverage now includes image auditing and governance (CloudTrail audit trail +
+> Service Quotas headroom). All four IAM policy tiers ship in `iam/`. CI
+> (ruff/format/pyright/bandit/pytest on Py 3.11–3.13) is green; published to PyPI and GHCR.
+> **`README.md` is the source of truth for the live tool catalog and exact tool names** — §5 below
+> records the original design intent and is kept reconciled with what shipped. See `CHANGELOG.md`
+> for per-version detail.
 
 ## 1. Principles
 
@@ -72,6 +74,8 @@
       reporting.py
       secure_browser.py
       pricing.py       # AWS Price List lookups for $ estimates
+      images.py        # WorkSpaces Applications image / image-builder audit
+      governance.py    # CloudTrail audit trail + Service Quotas headroom
       lifecycle.py     # Tier 2 (guarded writes)
       destructive.py   # Tier 3 (terminate/rebuild/restore)
   iam/                 # shippable least-privilege policy docs per tier (0–3)
@@ -137,7 +141,14 @@ and return a synthesized result, not raw API passthroughs.
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `audit_security_posture` | Encryption at rest, IP access control groups, directory config, portal policies | `workspaces:Describe*`, `workspaces-web:Get*/List*`, `appstream:Describe*` |
+| `audit_application_images` | WorkSpaces Applications image/image-builder audit — stale base, pinned agent, errored/SHARED images, RUNNING builders | `appstream:DescribeImages`, `appstream:DescribeImageBuilders` |
 | `list_unused_resources` | Idle desktops / empty fleets / orphaned resources | describes + `cloudwatch:GetMetricData` |
+
+**Governance** (cross-service)
+| Tool | Purpose | IAM actions |
+|---|---|---|
+| `get_euc_audit_trail` | "Who changed what" — recent EUC management events (mutations by default), 90-day CloudTrail history | `cloudtrail:LookupEvents` |
+| `get_euc_service_quotas` | Quota limits + usage headroom per EUC service (capacity planning) | `servicequotas:ListServiceQuotas`, `servicequotas:GetServiceQuota`, `cloudwatch:GetMetricData` |
 
 ### Phase 2 — Guarded lifecycle (writes; Tier 2, `--enable-writes`)
 All support `dry_run`, return a plan + blast-radius before acting, and honor `--max-bulk-targets`.
@@ -162,9 +173,12 @@ All support `dry_run`, return a plan + blast-radius before acting, and honor `--
 
 We ship a managed policy document per tier so customers grant exactly what they enable.
 
-- **Tier 0 — Diagnostics (read-only):** `workspaces:Describe*`, `appstream:Describe*`,
-  `workspaces-web:Get*`/`List*`, `ds:DescribeDirectories`, `cloudwatch:GetMetricData`,
-  `application-autoscaling:DescribeScalingActivities`.
+- **Tier 0 — Diagnostics (read-only):** `workspaces:Describe*`, `appstream:Describe*` (incl.
+  `DescribeImages`/`DescribeImageBuilders`), `workspaces-web:Get*`/`List*`,
+  `workspaces-instances:List*`/`Get*`, `ds:DescribeDirectories`,
+  `cloudwatch:GetMetricData`/`ListMetrics`, `application-autoscaling:DescribeScalingActivities`,
+  `ec2:DescribeInstances`, `cloudtrail:LookupEvents`,
+  `servicequotas:ListServiceQuotas`/`GetServiceQuota`.
 - **Tier 1 — Cost/optimization (read-only):** Tier 0 + `ce:GetCostAndUsage`,
   `ce:GetDimensionValues`, `pricing:GetProducts`.
 - **Tier 2 — Lifecycle (writes):** Tier 1 + `workspaces:Start/Stop/Reboot/ModifyWorkspace*`,
