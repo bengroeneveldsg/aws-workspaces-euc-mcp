@@ -22,6 +22,8 @@ CLOUDWATCH_API = "cloudwatch"  # Telemetry for diagnostics/cost tools.
 EC2_API = "ec2"  # Used to enrich WorkSpaces Core Managed Instances with EC2 details.
 COST_EXPLORER_API = "ce"  # Cost Explorer (global; account-wide, not region-scoped).
 PRICING_API = "pricing"  # AWS Price List (global).
+CLOUDTRAIL_API = "cloudtrail"  # Management-event history (LookupEvents) for the audit trail.
+SERVICE_QUOTAS_API = "service-quotas"  # Quota limits + linked usage metrics for headroom.
 
 # Cost Explorer is a global endpoint served from us-east-1 regardless of the working region.
 COST_EXPLORER_REGION = "us-east-1"
@@ -43,6 +45,50 @@ PRODUCT_WORKSPACES_POOLS = "Amazon WorkSpaces Pools"
 PRODUCT_WORKSPACES_APPLICATIONS = "Amazon WorkSpaces Applications"
 PRODUCT_SECURE_BROWSER = "Amazon WorkSpaces Secure Browser"
 PRODUCT_WORKSPACES_CORE_INSTANCES = "Amazon WorkSpaces Core Managed Instances"
+
+# --- Governance: CloudTrail event sources + Service Quotas codes per EUC service group ---
+# CloudTrail EventSource -> human product label (workspaces source covers Personal/Pools/Core).
+EUC_AUDIT_SOURCES = {
+    "workspaces.amazonaws.com": "Amazon WorkSpaces",
+    "appstream.amazonaws.com": PRODUCT_WORKSPACES_APPLICATIONS,
+    "workspaces-web.amazonaws.com": PRODUCT_SECURE_BROWSER,
+    "workspaces-instances.amazonaws.com": PRODUCT_WORKSPACES_CORE_INSTANCES,
+}
+# Friendly service filter -> the CloudTrail EventSource(s) it selects.
+EUC_AUDIT_SERVICE_FILTER = {
+    "all": list(EUC_AUDIT_SOURCES),
+    "workspaces": ["workspaces.amazonaws.com"],
+    "applications": ["appstream.amazonaws.com"],
+    "secure-browser": ["workspaces-web.amazonaws.com"],
+    "core": ["workspaces-instances.amazonaws.com"],
+}
+# Service Quotas service code -> human product label.
+EUC_QUOTA_SERVICE_CODES = {
+    "workspaces": "Amazon WorkSpaces",
+    "appstream2": PRODUCT_WORKSPACES_APPLICATIONS,
+    "workspaces-web": PRODUCT_SECURE_BROWSER,
+    "workspaces-instances": PRODUCT_WORKSPACES_CORE_INSTANCES,
+}
+# Friendly service filter -> the Service Quotas code(s) it selects.
+EUC_QUOTA_SERVICE_FILTER = {
+    "all": list(EUC_QUOTA_SERVICE_CODES),
+    "workspaces": ["workspaces"],
+    "applications": ["appstream2"],
+    "secure-browser": ["workspaces-web"],
+    "core": ["workspaces-instances"],
+}
+# CloudTrail event-name prefixes treated as destructive/high-impact in audit findings.
+AUDIT_DESTRUCTIVE_PREFIXES = (
+    "Terminate",
+    "Delete",
+    "Reboot",
+    "Rebuild",
+    "Restore",
+    "Revoke",
+    "Disassociate",
+    "Stop",
+    "Expire",
+)
 
 # Legacy / former product names mapped to their current official name. Accept these as INPUT
 # (users will keep saying them) but always emit the current name in output. This is surfaced to the
