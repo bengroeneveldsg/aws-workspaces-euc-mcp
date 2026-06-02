@@ -32,6 +32,10 @@ COST_EXPLORER_REGION = "us-east-1"
 # silently dropped. "workspaces" covers Personal/Pools/Core/Web/Secure Browser; "appstream" covers
 # WorkSpaces Applications (AppStream 2.0).
 EUC_COST_EXPLORER_SERVICE_TOKENS = ["workspaces", "appstream"]
+# Substrings that EXCLUDE a service even when an include token matches. WorkSpaces Thin Client is
+# out of scope for this server, but its Cost Explorer name ("Amazon WorkSpaces Thin Client")
+# contains "workspaces" — so exclude it explicitly.
+EUC_COST_EXPLORER_EXCLUDE_TOKENS = ["thin client"]
 
 # Current official product names (used in all human-facing output).
 PRODUCT_WORKSPACES_PERSONAL = "Amazon WorkSpaces Personal"
