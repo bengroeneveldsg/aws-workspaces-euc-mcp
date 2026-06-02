@@ -135,7 +135,7 @@ and return a synthesized result, not raw API passthroughs.
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `get_secure_browser_portal_details` | Portal config + associated settings (browser/network/user/IP-access) + resolved data-protection redaction config | `workspaces-web:GetPortal`, `workspaces-web:List*`, `workspaces-web:Get*Settings`, `workspaces-web:GetDataProtectionSettings` |
-| `get_secure_browser_portal_usage` | Portal session/usage metrics | `workspaces-web:ListPortals`, `cloudwatch:GetMetricData` |
+| `get_secure_browser_portal_usage` | Current active sessions (live, `ListSessions`) + historic CloudWatch metrics | `workspaces-web:ListPortals`, `workspaces-web:ListSessions`, `cloudwatch:GetMetricData` |
 
 **Reporting & audit**
 | Tool | Purpose | IAM actions |

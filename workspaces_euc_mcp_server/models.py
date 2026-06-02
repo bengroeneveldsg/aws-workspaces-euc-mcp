@@ -166,6 +166,35 @@ class SecureBrowserPortalDetails(BaseModel):
     errors: list[ServiceError] = Field(default_factory=list)
 
 
+class SecureBrowserSession(BaseModel):
+    """A single Secure Browser portal session (from ListSessions)."""
+
+    session_id: str
+    username: str | None = None
+    status: str | None = None
+    start_time: str | None = None
+
+
+class SecureBrowserPortalUsage(BaseModel):
+    """Live active sessions (ListSessions) plus historic metrics (CloudWatch) for a portal."""
+
+    portal: str
+    active_session_count: int = 0
+    active_sessions: list[SecureBrowserSession] = Field(
+        default_factory=list,
+        description="Sessions currently Active, retrieved live from ListSessions (like the "
+        "console).",
+    )
+    lookback_days: int
+    period_hours: int
+    historic_metrics: dict[str, FleetMetricSeries] = Field(
+        default_factory=dict,
+        description="Historic session metrics from CloudWatch (AWS/WorkSpacesWeb) over the window.",
+    )
+    summary: str | None = None
+    errors: list[ServiceError] = Field(default_factory=list)
+
+
 class UsageHistory(BaseModel):
     """Generic metric time-series history for a single EUC resource over a window."""
 

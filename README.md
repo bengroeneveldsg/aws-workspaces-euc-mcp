@@ -65,7 +65,7 @@ audit, and governance tools:
 | `get_euc_audit_trail` | **"Who changed what"** — recent EUC management events from CloudTrail (last 90 days, no trail required) across all services; mutations-only by default, flags destructive actions and errors (e.g. AccessDenied) (Tier 0). |
 | `get_euc_service_quotas` | **Service-quota limits + usage headroom** per EUC service; pairs limits with current usage (where AWS publishes a usage metric) to flag quotas approaching their limit — capacity planning (Tier 0). |
 | `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, attached policies, and — when configured — the **data-protection redaction config** (which built-in/custom patterns are redacted, confidence level, enforced/exempt URLs) (Tier 0). |
-| `get_secure_browser_portal_usage` | A Secure Browser portal's `AWS/WorkSpacesWeb` session metrics over a window (empty until the portal has sessions; Session Logger gives detail) (Tier 0). |
+| `get_secure_browser_portal_usage` | A Secure Browser portal's **current active sessions** (live, via `ListSessions` — same as the console) plus **historic** `AWS/WorkSpacesWeb` metrics over a window (CloudWatch is historic-only; idle portals publish none) (Tier 0). |
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 
 Cost/utilization tools need the **Tier 1** IAM policy ([`iam/tier1-cost.json`](iam/tier1-cost.json));

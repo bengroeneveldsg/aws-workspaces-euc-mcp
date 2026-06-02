@@ -40,7 +40,8 @@
         "workspaces-web:ListNetworkSettings",
         "workspaces-web:GetUserSettings",
         "workspaces-web:GetNetworkSettings",
-        "workspaces-web:GetDataProtectionSettings"
+        "workspaces-web:GetDataProtectionSettings",
+        "workspaces-web:ListSessions"
       ],
       "Resource": "*"
     },
