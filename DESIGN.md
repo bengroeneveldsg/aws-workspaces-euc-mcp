@@ -117,7 +117,7 @@ and return a synthesized result, not raw API passthroughs.
 | `diagnose_workspace_connectivity` | Correlate a Personal WorkSpace's state + connection status + directory health + CloudWatch into a root-cause narrative | `workspaces:Describe*`, `ds:DescribeDirectories`, `cloudwatch:GetMetricData` |
 | `diagnose_pool` | Why a Pool is unhealthy/queued — capacity status, sessions, errors, scaling | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
 | `diagnose_application_fleet` | Fleet state, capacity, scaling activity, fleet errors | `appstream:DescribeFleets`, `appstream:ListAssociatedStacks`, `cloudwatch:GetMetricData`, `application-autoscaling:DescribeScalingActivities` |
-| `check_directory_health` | Shared dependency: directory reachability/registration (skips `ds` for WorkSpaces-managed `wsd-` directories) | `ds:DescribeDirectories`, `workspaces:DescribeWorkspaceDirectories` |
+| `check_directory_health` | Shared dependency: directory reachability/registration + registration properties (target OU, security group, flags); skips `ds` for WorkSpaces-managed `wsd-` directories | `ds:DescribeDirectories`, `workspaces:DescribeWorkspaceDirectories` |
 
 **Cost, utilization & performance**
 | Tool | Purpose | IAM actions |
@@ -134,7 +134,7 @@ and return a synthesized result, not raw API passthroughs.
 **Secure Browser**
 | Tool | Purpose | IAM actions |
 |---|---|---|
-| `get_secure_browser_portal_details` | Portal config + associated settings (browser/network/user/IP-access) | `workspaces-web:GetPortal`, `workspaces-web:List*`, `workspaces-web:Get*Settings` |
+| `get_secure_browser_portal_details` | Portal config + associated settings (browser/network/user/IP-access) + resolved data-protection redaction config | `workspaces-web:GetPortal`, `workspaces-web:List*`, `workspaces-web:Get*Settings`, `workspaces-web:GetDataProtectionSettings` |
 | `get_secure_browser_portal_usage` | Portal session/usage metrics | `workspaces-web:ListPortals`, `cloudwatch:GetMetricData` |
 
 **Reporting & audit**

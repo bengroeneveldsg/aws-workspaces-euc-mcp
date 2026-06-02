@@ -78,6 +78,19 @@ def get_secure_browser_portal_details_core(
             if key in (ns or {}):
                 network[key] = ns[key]
 
+    data_protection: dict[str, object] = {}
+    if portal.get("dataProtectionSettingsArn"):
+        dps = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "GetDataProtectionSettings",
+            lambda: web.get_data_protection_settings(
+                dataProtectionSettingsArn=portal["dataProtectionSettingsArn"]
+            ).get("dataProtectionSettings", {}),
+            default={},
+        )
+        data_protection = _summarize_data_protection(dps or {})
+
     return SecureBrowserPortalDetails(
         portal_arn=portal_arn,
         display_name=portal.get("displayName"),
@@ -87,8 +100,38 @@ def get_secure_browser_portal_details_core(
         network=network,
         has_browser_policy=bool(portal.get("browserSettingsArn")),
         has_data_protection=bool(portal.get("dataProtectionSettingsArn")),
+        data_protection=data_protection,
         errors=errors,
     )
+
+
+def _summarize_data_protection(dps: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a data-protection settings object to the policy-relevant redaction configuration."""
+    inline: dict[str, Any] = dps.get("inlineRedactionConfiguration") or {}
+    patterns: list[dict[str, Any]] = inline.get("inlineRedactionPatterns") or []
+    builtin: list[str] = []
+    custom: list[dict[str, Any]] = []
+    for p in patterns:
+        if p.get("builtInPatternId"):
+            builtin.append(p["builtInPatternId"])
+        elif p.get("customPattern"):
+            cp = p["customPattern"]
+            custom.append(
+                {
+                    "name": cp.get("patternName"),
+                    "description": cp.get("patternDescription"),
+                    "keyword_regex": cp.get("keywordRegex"),
+                }
+            )
+    return {
+        "display_name": dps.get("displayName"),
+        "redacted_pattern_count": len(patterns),
+        "builtin_patterns": builtin,
+        "custom_patterns": custom,
+        "global_confidence_level": inline.get("globalConfidenceLevel"),
+        "global_enforced_urls": inline.get("globalEnforcedUrls"),
+        "global_exempt_urls": inline.get("globalExemptUrls"),
+    }
 
 
 def _portal_id(portal: str) -> str:
@@ -147,8 +190,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         """Resolve a WorkSpaces Secure Browser portal's settings (security-relevant).
 
         Returns the portal's user settings (clipboard copy/paste, file download/upload, print
-        controls + timeouts), network (VPC/subnets/security groups), and whether a browser policy
-        and data-protection settings are attached. Read-only.
+        controls + timeouts), network (VPC/subnets/security groups), whether a browser policy is
+        attached, and — when data protection is configured — the resolved inline-redaction config
+        (which built-in/custom patterns are redacted, global confidence, enforced/exempt URLs).
+        Read-only.
 
         Args:
             portal_arn: The portal ARN (from get_euc_inventory_summary / generate_inventory_report).

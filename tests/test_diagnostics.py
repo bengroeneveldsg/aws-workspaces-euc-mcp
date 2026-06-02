@@ -161,6 +161,45 @@ def test_directory_health_skips_ds_for_workspaces_managed_directory():
     assert any("WorkSpaces-managed" in f.title for f in d.findings)
 
 
+def test_directory_health_surfaces_registration_ou_and_properties():
+    # The registration OU (WorkspaceCreationProperties.DefaultOu) and related properties must be
+    # exposed in the diagnosis signals.
+    workspaces = types.SimpleNamespace(
+        describe_workspace_directories=lambda **_: {
+            "Directories": [
+                {
+                    "DirectoryId": "d-0123456789",
+                    "State": "REGISTERED",
+                    "DirectoryType": "AD_CONNECTOR",
+                    "WorkspaceType": "PERSONAL",
+                    "WorkspaceCreationProperties": {
+                        "DefaultOu": "OU=AmazonWorkspaces,OU=Singapore,DC=bg,DC=local",
+                        "CustomSecurityGroupId": "sg-0abc",
+                        "UserEnabledAsLocalAdministrator": True,
+                        "EnableInternetAccess": False,
+                        "EnableMaintenanceMode": True,
+                    },
+                }
+            ]
+        },
+    )
+    ds = types.SimpleNamespace(
+        describe_directories=lambda **_: {
+            "DirectoryDescriptions": [{"DirectoryId": "d-0123456789", "Stage": "Active"}]
+        },
+    )
+    factory = FakeFactory({consts.WORKSPACES_API: workspaces, consts.DIRECTORY_API: ds})
+
+    report = diagnostics.check_directory_health_core(factory, "d-0123456789", "us-east-1")
+
+    sig = report.directories[0].signals
+    assert sig["default_ou"] == "OU=AmazonWorkspaces,OU=Singapore,DC=bg,DC=local"
+    assert sig["directory_type"] == "AD_CONNECTOR"
+    assert sig["custom_security_group_id"] == "sg-0abc"
+    assert sig["user_enabled_as_local_administrator"] is True
+    assert sig["enable_maintenance_mode"] is True
+
+
 def test_directory_health_flags_impaired_stage():
     workspaces = types.SimpleNamespace(
         describe_workspace_directories=lambda **_: {

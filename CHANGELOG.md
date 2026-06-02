@@ -5,6 +5,18 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-06-02
+
+### Added
+- `check_directory_health` now surfaces each directory's **registration properties** in its
+  signals — notably the target **OU** (`WorkspaceCreationProperties.DefaultOu`), plus custom
+  security group, local-admin / internet-access / maintenance-mode flags, and directory/workspace
+  type. (AD-backed directories carry an OU; WorkSpaces-managed ones return none.)
+- `get_secure_browser_portal_details` now resolves the portal's **data-protection configuration**
+  when attached: the redacted built-in/custom inline-redaction patterns, global confidence level,
+  and enforced/exempt URLs — not just whether data protection is on. Adds
+  `workspaces-web:GetDataProtectionSettings` to every IAM tier.
+
 ## [0.1.5] - 2026-06-02
 
 ### Added
