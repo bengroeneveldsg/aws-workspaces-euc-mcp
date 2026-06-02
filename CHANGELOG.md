@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-06-02
+
+### Fixed
+- `get_secure_browser_portal_usage` now reports **current active sessions live via
+  `workspaces-web:ListSessions`** (the same source as the console's active-sessions view) instead
+  of inferring "active" from CloudWatch. CloudWatch (`AWS/WorkSpacesWeb`) is now used **only for
+  historic** metrics, and the summary clearly separates live vs historic. Adds
+  `workspaces-web:ListSessions` to every IAM tier. The tool now returns a `SecureBrowserPortalUsage`
+  result (`active_session_count`, `active_sessions`, `historic_metrics`).
+
 ## [0.1.6] - 2026-06-02
 
 ### Added

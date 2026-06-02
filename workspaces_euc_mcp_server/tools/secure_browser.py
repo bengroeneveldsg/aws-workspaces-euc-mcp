@@ -18,8 +18,13 @@ from typing import Any
 
 from .. import consts
 from ..clients import ClientFactory
-from ..models import SecureBrowserPortalDetails, ServiceError, UsageHistory
-from ._common import read_only, try_call
+from ..models import (
+    SecureBrowserPortalDetails,
+    SecureBrowserPortalUsage,
+    SecureBrowserSession,
+    ServiceError,
+)
+from ._common import paginate, read_only, try_call
 from .performance import _fetch_metric_series
 
 
@@ -139,14 +144,54 @@ def _portal_id(portal: str) -> str:
     return portal.rsplit("/", 1)[-1] if "/" in portal else portal
 
 
+def _list_active_sessions(
+    web: Any, portal_id: str, errors: list[ServiceError]
+) -> list[SecureBrowserSession]:
+    """Current Active sessions for a portal, live from ListSessions (what the console shows)."""
+    raw = try_call(
+        errors,
+        consts.PRODUCT_SECURE_BROWSER,
+        "ListSessions",
+        lambda: paginate(
+            web.list_sessions,
+            "sessions",
+            pagination_in="nextToken",
+            pagination_out="nextToken",
+            portalId=portal_id,
+            status="Active",
+        ),
+        default=[],
+    )
+    sessions: list[SecureBrowserSession] = []
+    for s in raw or []:
+        start = s.get("startTime")
+        sessions.append(
+            SecureBrowserSession(
+                session_id=s.get("sessionId", ""),
+                username=s.get("username"),
+                status=s.get("status"),
+                start_time=start.isoformat() if hasattr(start, "isoformat") else None,
+            )
+        )
+    return sessions
+
+
 def get_secure_browser_portal_usage_core(
     factory: ClientFactory,
     portal: str,
     region: str | None,
     lookback_days: int = 7,
     period_hours: int = 24,
-) -> UsageHistory:
+) -> SecureBrowserPortalUsage:
     errors: list[ServiceError] = []
+    portal_id = _portal_id(portal)
+    web = factory.client(consts.SECURE_BROWSER_API, region=region)
+
+    # LIVE: current active sessions come from ListSessions (the real-time source the console uses),
+    # NOT from CloudWatch.
+    active = _list_active_sessions(web, portal_id, errors)
+
+    # HISTORIC: CloudWatch (AWS/WorkSpacesWeb) over the window — only meaningful for past activity.
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
     metrics = try_call(
         errors,
@@ -156,26 +201,30 @@ def get_secure_browser_portal_usage_core(
             cloudwatch,
             consts.SECURE_BROWSER_NAMESPACE,
             consts.SECURE_BROWSER_PORTAL_DIMENSION,
-            _portal_id(portal),
+            portal_id,
             consts.SECURE_BROWSER_SESSION_METRICS,
             lookback_days,
             period_hours,
         ),
         default={},
     )
-    summary = (
-        "No session metrics in the window. Secure Browser only emits CloudWatch metrics when "
-        "sessions occur (idle portals publish nothing); for detailed usage enable the portal's "
-        "Session Logger."
-        if not metrics
-        else f"Session metrics over {lookback_days}d: see series."
+
+    hist = (
+        f"historic metrics over {lookback_days}d available (see historic_metrics)"
+        if metrics
+        else f"no historic session metrics in the last {lookback_days}d (idle portals publish "
+        "none to CloudWatch; enable the portal's Session Logger for detail)"
     )
-    return UsageHistory(
-        target_type=consts.PRODUCT_SECURE_BROWSER,
-        target_id=portal,
+    summary = (
+        f"{len(active)} active session(s) right now (live via ListSessions). Historic: {hist}."
+    )
+    return SecureBrowserPortalUsage(
+        portal=portal,
+        active_session_count=len(active),
+        active_sessions=active,
         lookback_days=lookback_days,
         period_hours=period_hours,
-        metrics=metrics or {},
+        historic_metrics=metrics or {},
         summary=summary,
         errors=errors,
     )
@@ -210,10 +259,12 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         lookback_days: int = 7,
         period_hours: int = 24,
     ) -> dict[str, Any]:
-        """Get a Secure Browser portal's session metrics (AWS/WorkSpacesWeb) over a window.
+        """Get a Secure Browser portal's CURRENT active sessions plus historic session metrics.
 
-        NOTE: Secure Browser only emits these metrics when sessions occur, so idle portals return
-        nothing; richer per-session data is available via the portal's Session Logger. Read-only.
+        Active sessions are retrieved **live** from ListSessions (the same source as the console's
+        active-sessions view). Historic usage comes from CloudWatch (AWS/WorkSpacesWeb) over the
+        window — CloudWatch is only meaningful for *past* activity, and idle portals publish none.
+        Read-only.
 
         Args:
             portal: The portal id or ARN.

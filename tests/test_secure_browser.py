@@ -108,19 +108,35 @@ def test_portal_details_resolves_data_protection_config():
     assert dp["global_enforced_urls"] == ["*"]
 
 
-def test_portal_usage_empty_explains_session_model():
-    cw = types.SimpleNamespace(
-        get_metric_data=lambda **_: {"MetricDataResults": []}  # no data
-    )
-    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+def test_portal_usage_returns_live_active_sessions_and_historic():
+    # Active sessions must come LIVE from ListSessions (status=Active), not from CloudWatch.
+    captured = {}
+
+    def list_sessions(**kwargs):
+        captured.update(kwargs)
+        return {
+            "sessions": [
+                {"sessionId": "s-1", "username": "alice", "status": "Active"},
+                {"sessionId": "s-2", "username": "bob", "status": "Active"},
+            ]
+        }
+
+    web = types.SimpleNamespace(list_sessions=list_sessions)
+    cw = types.SimpleNamespace(get_metric_data=lambda **_: {"MetricDataResults": []})  # no historic
+    factory = FakeFactory({consts.SECURE_BROWSER_API: web, consts.CLOUDWATCH_API: cw})
 
     usage = secure_browser.get_secure_browser_portal_usage_core(
         factory, "arn:aws:workspaces-web:r:a:portal/abc123", "us-east-1"
     )
 
-    assert usage.target_type == consts.PRODUCT_SECURE_BROWSER
-    assert usage.target_id.endswith("portal/abc123")
-    assert "Session Logger" in (usage.summary or "")
+    # Queried ListSessions for the portal id with status=Active.
+    assert captured["portalId"] == "abc123"
+    assert captured["status"] == "Active"
+    # Live active sessions populated; CloudWatch reserved for (empty) historic.
+    assert usage.active_session_count == 2
+    assert {s.username for s in usage.active_sessions} == {"alice", "bob"}
+    assert usage.historic_metrics == {}
+    assert "active session(s) right now" in (usage.summary or "")
 
 
 def test_portal_id_extracted_from_arn():
