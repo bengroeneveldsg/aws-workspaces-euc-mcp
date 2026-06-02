@@ -5,15 +5,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-06-02
+
 ### Fixed
 - `get_euc_cost_summary` no longer silently drops spend for services whose Cost Explorer `SERVICE`
-  name isn't an exact match to a hardcoded list (this hid **WorkSpaces Applications / AppStream**
-  spend). EUC services are now selected by keyword (`workspaces` / `appstream`) against all
-  services in the period, and results are paginated.
+  name isn't an exact match to a hardcoded list. In real accounts this **hid all WorkSpaces
+  Applications spend**, which bills under the name `Amazon WorkSpaces Applications` (the AppStream
+  rebrand) rather than `Amazon AppStream`. EUC services are now selected by keyword
+  (`workspaces` / `appstream`) against every service in the period, with `Amazon WorkSpaces Thin
+  Client` (out of scope) explicitly excluded, and results are paginated.
 
 ### Added
 - `get_euc_cost_summary` accepts optional `start_date` / `end_date` (YYYY-MM-DD, end exclusive) to
   total an exact calendar month instead of only a rolling `lookback_days` window.
+
+### Docs
+- README: a "not an official AWS product" disclaimer at the top; an **Amazon Quick (Desktop)**
+  client example; an **AWS authentication** section (SSO login + auto-refresh; console sign-in does
+  not produce the on-disk token); and an explicit four-gate **write/destructive safety** section
+  noting that the launch flag grants no AWS access (IAM is still required).
+- DESIGN.md reconciled with the shipped code.
 
 ## [0.1.2] - 2026-06-01
 
