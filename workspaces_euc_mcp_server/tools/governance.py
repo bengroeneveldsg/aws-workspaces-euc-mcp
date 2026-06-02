@@ -37,7 +37,7 @@ _CLOUDTRAIL_MAX_LOOKBACK = 90  # LookupEvents only retains 90 days.
 
 
 def _parse_event(raw: dict[str, Any]) -> AuditEvent:
-    source = raw.get("EventSource", "")
+    source = str(raw.get("EventSource") or "")
     detail: dict[str, Any] = {}
     try:
         detail = json.loads(raw.get("CloudTrailEvent", "{}"))
