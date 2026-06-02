@@ -195,45 +195,70 @@ def recommend_running_mode_core(
     )
 
 
+def _is_euc_service(service_name: str) -> bool:
+    """True if a Cost Explorer SERVICE value belongs to the EUC portfolio.
+
+    Matches by keyword rather than exact name, so account/era naming variants
+    (e.g. "Amazon AppStream 2.0") are never silently excluded.
+    """
+    name = service_name.lower()
+    return any(token in name for token in consts.EUC_COST_EXPLORER_SERVICE_TOKENS)
+
+
 def get_euc_cost_summary_core(
-    factory: ClientFactory, lookback_days: int = 30, granularity: str = "MONTHLY"
+    factory: ClientFactory,
+    lookback_days: int = 30,
+    granularity: str = "MONTHLY",
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> CostSummary:
     errors: list[ServiceError] = []
     # Cost Explorer is a global endpoint served from us-east-1, regardless of working region.
     cost_explorer = factory.client(consts.COST_EXPLORER_API, region=consts.COST_EXPLORER_REGION)
 
-    end_date = datetime.now(UTC).date()
-    start_date = end_date - timedelta(days=lookback_days)
-    start, end = start_date.isoformat(), end_date.isoformat()
+    if start_date and end_date:
+        start, end = start_date, end_date
+    else:
+        end_d = datetime.now(UTC).date()
+        start_d = end_d - timedelta(days=lookback_days)
+        start, end = start_d.isoformat(), end_d.isoformat()
 
-    response = try_call(
-        errors,
-        "AWS Cost Explorer",
-        "GetCostAndUsage",
-        lambda: cost_explorer.get_cost_and_usage(
-            TimePeriod={"Start": start, "End": end},
-            Granularity=granularity,
-            Metrics=["UnblendedCost"],
-            Filter={
-                "Dimensions": {
-                    "Key": "SERVICE",
-                    "Values": consts.EUC_COST_EXPLORER_SERVICES,
-                }
-            },
-            GroupBy=[{"Type": "DIMENSION", "Key": "SERVICE"}],
-        ),
-        default={},
-    )
-
+    # Group by SERVICE across ALL spend and select EUC services in code (see _is_euc_service).
+    # A server-side exact-name SERVICE filter would silently drop any naming variant — the very
+    # bug that hid AppStream / WorkSpaces Applications spend. Page through all results.
     totals_by_service: dict[str, float] = {}
     currency = "USD"
-    for period in (response or {}).get("ResultsByTime", []):
-        for group in period.get("Groups", []):
-            service = (group.get("Keys") or ["Unknown"])[0]
-            metric = group.get("Metrics", {}).get("UnblendedCost", {})
-            amount = float(metric.get("Amount", 0.0))
-            currency = metric.get("Unit", currency)
-            totals_by_service[service] = totals_by_service.get(service, 0.0) + amount
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "TimePeriod": {"Start": start, "End": end},
+            "Granularity": granularity,
+            "Metrics": ["UnblendedCost"],
+            "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
+        }
+        if next_token:
+            kwargs["NextPageToken"] = next_token
+        response = try_call(
+            errors,
+            "AWS Cost Explorer",
+            "GetCostAndUsage",
+            lambda kwargs=kwargs: cost_explorer.get_cost_and_usage(**kwargs),
+            default={},
+        )
+        if not response:
+            break
+        for period in response.get("ResultsByTime", []):
+            for group in period.get("Groups", []):
+                service = (group.get("Keys") or ["Unknown"])[0]
+                if not _is_euc_service(service):
+                    continue
+                metric = group.get("Metrics", {}).get("UnblendedCost", {})
+                amount = float(metric.get("Amount", 0.0))
+                currency = metric.get("Unit", currency)
+                totals_by_service[service] = totals_by_service.get(service, 0.0) + amount
+        next_token = response.get("NextPageToken")
+        if not next_token:
+            break
 
     by_service = [
         CostLineItem(service=s, amount=round(a, 2))
@@ -250,8 +275,10 @@ def get_euc_cost_summary_core(
         by_service=by_service,
         errors=errors,
         notes=[
-            "Filtered to EUC SERVICE dimension values; some products (e.g. Secure Browser) may "
-            "bill under a different service name depending on the account."
+            "EUC services are selected by matching the Cost Explorer SERVICE name against the EUC "
+            "keyword set (workspaces / appstream), so naming variants are not dropped.",
+            "Cost Explorer bills WorkSpaces Personal, Pools, and Core together under the single "
+            "'Amazon WorkSpaces' service; they cannot be separated via the SERVICE dimension.",
         ],
     )
 
@@ -293,18 +320,33 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def get_euc_cost_summary(
-        lookback_days: int = 30, granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY"
+        lookback_days: int = 30,
+        granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY",
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> dict[str, Any]:
         """Summarize EUC spend by service over a window (account-wide via Cost Explorer).
 
-        Returns unblended cost grouped by service for the EUC portfolio. Cost Explorer is not
-        region-scoped, so figures are account-wide. Read-only.
+        Returns unblended cost grouped by service for the EUC portfolio (WorkSpaces, including
+        Personal/Pools/Core which Cost Explorer bills together as "Amazon WorkSpaces"; WorkSpaces
+        Applications/AppStream; and Secure Browser). Services are matched by keyword, so naming
+        variants are never dropped. Cost Explorer is not region-scoped, so figures are account-wide.
+        Read-only.
+
+        For a specific calendar month, pass start_date/end_date instead of lookback_days — Cost
+        Explorer's end is EXCLUSIVE, so for May 2026 use start_date="2026-05-01",
+        end_date="2026-06-01".
 
         Args:
-            lookback_days: How far back to total (default 30).
+            lookback_days: How far back to total when start_date/end_date are omitted (default 30).
             granularity: Cost Explorer granularity: MONTHLY or DAILY (default MONTHLY).
+            start_date: Optional inclusive start, "YYYY-MM-DD". Use with end_date; overrides
+                lookback_days.
+            end_date: Optional EXCLUSIVE end, "YYYY-MM-DD". Use with start_date.
         """
-        summary = get_euc_cost_summary_core(factory, lookback_days, granularity)
+        summary = get_euc_cost_summary_core(
+            factory, lookback_days, granularity, start_date, end_date
+        )
         return summary.model_dump()
 
     mcp.add_tool(

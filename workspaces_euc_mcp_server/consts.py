@@ -26,14 +26,12 @@ PRICING_API = "pricing"  # AWS Price List (global).
 # Cost Explorer is a global endpoint served from us-east-1 regardless of the working region.
 COST_EXPLORER_REGION = "us-east-1"
 
-# Cost Explorer SERVICE dimension values that map to the EUC portfolio. Names can vary by
-# account/era; the filter simply ignores values that produce no results.
-EUC_COST_EXPLORER_SERVICES = [
-    "Amazon WorkSpaces",
-    "Amazon AppStream",
-    "Amazon WorkSpaces Web",
-    "Amazon WorkSpaces Secure Browser",
-]
+# Substrings (lowercased) that identify an EUC service in the Cost Explorer SERVICE dimension.
+# Matched in code against every service returned — NOT used as an exact-name server-side filter —
+# so account/era naming variants (e.g. "Amazon AppStream 2.0") and casing differences can never be
+# silently dropped. "workspaces" covers Personal/Pools/Core/Web/Secure Browser; "appstream" covers
+# WorkSpaces Applications (AppStream 2.0).
+EUC_COST_EXPLORER_SERVICE_TOKENS = ["workspaces", "appstream"]
 
 # Current official product names (used in all human-facing output).
 PRODUCT_WORKSPACES_PERSONAL = "Amazon WorkSpaces Personal"

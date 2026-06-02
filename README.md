@@ -56,7 +56,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 | `get_workspace_connection_history` | A desktop's connection/session **history** (UserConnected + connection attempts/failures) over a window, with a summary (Tier 0). |
 | `get_pool_session_history` | A WorkSpaces Pool's user-**session history** (active/available/utilization capacity time-series), flags idle pool capacity (Tier 0). |
 | `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
-| `get_euc_cost_summary` | EUC spend by service over a window via Cost Explorer, account-wide (Tier 1). |
+| `get_euc_cost_summary` | EUC spend by service over a window (or an explicit `start_date`/`end_date` calendar month) via Cost Explorer, account-wide. Services are matched by keyword so naming variants (e.g. AppStream 2.0) aren't dropped; note Cost Explorer bills WorkSpaces Personal/Pools/Core together as one "Amazon WorkSpaces" line (Tier 1). |
 | `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |
 | `audit_security_posture` | Cross-service: flags unencrypted WorkSpace volumes, directories without IP access control groups, and **Secure Browser portals / Applications stacks that allow data egress** (clipboard/download/print) (Tier 0). |
 | `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, and attached policies (Tier 0). |

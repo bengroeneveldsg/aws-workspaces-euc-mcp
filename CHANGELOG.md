@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- `get_euc_cost_summary` no longer silently drops spend for services whose Cost Explorer `SERVICE`
+  name isn't an exact match to a hardcoded list (this hid **WorkSpaces Applications / AppStream**
+  spend). EUC services are now selected by keyword (`workspaces` / `appstream`) against all
+  services in the period, and results are paginated.
+
+### Added
+- `get_euc_cost_summary` accepts optional `start_date` / `end_date` (YYYY-MM-DD, end exclusive) to
+  total an exact calendar month instead of only a rolling `lookback_days` window.
+
 ## [0.1.2] - 2026-06-01
 
 ### Added

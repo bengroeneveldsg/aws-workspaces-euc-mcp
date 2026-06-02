@@ -129,6 +129,100 @@ def test_cost_summary_aggregates_by_service():
     assert summary.by_service[1].amount == 40.0
 
 
+def test_cost_summary_keyword_matches_variants_and_excludes_noneuc():
+    # AppStream under a NON-exact name (the bug that hid WorkSpaces Applications spend) must still
+    # be captured, while non-EUC services (EC2) are excluded.
+    ce = types.SimpleNamespace(
+        get_cost_and_usage=lambda **_: {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon AppStream 2.0"],
+                            "Metrics": {"UnblendedCost": {"Amount": "25.00", "Unit": "USD"}},
+                        },
+                        {
+                            "Keys": ["Amazon WorkSpaces Secure Browser"],
+                            "Metrics": {"UnblendedCost": {"Amount": "5.00", "Unit": "USD"}},
+                        },
+                        {
+                            "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                            "Metrics": {"UnblendedCost": {"Amount": "999.00", "Unit": "USD"}},
+                        },
+                    ]
+                }
+            ]
+        }
+    )
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    summary = cost.get_euc_cost_summary_core(factory, lookback_days=30)
+
+    assert {li.service for li in summary.by_service} == {
+        "Amazon AppStream 2.0",
+        "Amazon WorkSpaces Secure Browser",
+    }
+    assert summary.total == 30.0  # EC2 excluded
+
+
+def test_cost_summary_explicit_date_range_overrides_lookback():
+    captured: dict = {}
+
+    def get_cost_and_usage(**kwargs):
+        captured.update(kwargs)
+        return {"ResultsByTime": []}
+
+    ce = types.SimpleNamespace(get_cost_and_usage=get_cost_and_usage)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    summary = cost.get_euc_cost_summary_core(
+        factory, start_date="2026-05-01", end_date="2026-06-01"
+    )
+
+    assert captured["TimePeriod"] == {"Start": "2026-05-01", "End": "2026-06-01"}
+    assert summary.start == "2026-05-01"
+    assert summary.end == "2026-06-01"
+
+
+def test_cost_summary_follows_pagination():
+    page1 = {
+        "ResultsByTime": [
+            {
+                "Groups": [
+                    {
+                        "Keys": ["Amazon WorkSpaces"],
+                        "Metrics": {"UnblendedCost": {"Amount": "10.00", "Unit": "USD"}},
+                    }
+                ]
+            }
+        ],
+        "NextPageToken": "p2",
+    }
+    page2 = {
+        "ResultsByTime": [
+            {
+                "Groups": [
+                    {
+                        "Keys": ["Amazon AppStream"],
+                        "Metrics": {"UnblendedCost": {"Amount": "20.00", "Unit": "USD"}},
+                    }
+                ]
+            }
+        ]
+    }
+
+    def get_cost_and_usage(**kwargs):
+        return page2 if kwargs.get("NextPageToken") == "p2" else page1
+
+    ce = types.SimpleNamespace(get_cost_and_usage=get_cost_and_usage)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    summary = cost.get_euc_cost_summary_core(factory, lookback_days=30)
+
+    assert summary.total == 30.0
+    assert {li.service for li in summary.by_service} == {"Amazon WorkSpaces", "Amazon AppStream"}
+
+
 def test_cost_summary_records_errors_gracefully():
     from botocore.exceptions import ClientError
 
