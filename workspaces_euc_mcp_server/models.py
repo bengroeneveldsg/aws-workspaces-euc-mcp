@@ -289,6 +289,13 @@ class CostSummary(BaseModel):
     currency: str = "USD"
     total: float
     by_service: list[CostLineItem] = Field(default_factory=list)
+    workspaces_breakdown: dict[str, float] = Field(
+        default_factory=dict,
+        description=(
+            "The single 'Amazon WorkSpaces' SERVICE line split into Personal / Pools / Core via "
+            "USAGE_TYPE (which SERVICE cannot do). Populated when WorkSpaces has spend."
+        ),
+    )
     by_period: list[CostPeriod] = Field(
         default_factory=list,
         description=(

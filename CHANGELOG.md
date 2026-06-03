@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-06-03
+
+### Added
+- `get_euc_cost_summary` now returns **`workspaces_breakdown`** — the single "Amazon WorkSpaces"
+  Cost Explorer line split into **Personal / Pools / Core** via `USAGE_TYPE` (which the SERVICE
+  dimension cannot do; pool charges carry `Pools`, Core carries `ManagedInstances`, the rest is
+  Personal). This answers "is this WorkSpaces figure Personal-only or does it include Pools/Core?".
+  Controlled by `split_workspaces` (default true). A note also explains that AlwaysOn monthly bundle
+  charges post on the 1st, so day-1 of a DAILY series spikes legitimately.
+
 ## [0.1.9] - 2026-06-03
 
 ### Changed

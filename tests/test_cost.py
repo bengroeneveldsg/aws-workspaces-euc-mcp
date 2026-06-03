@@ -215,6 +215,72 @@ def test_cost_summary_daily_returns_per_period_time_series():
     assert summary.by_period[0].by_service[0].service == "Amazon WorkSpaces Applications"
 
 
+def test_cost_summary_splits_workspaces_personal_pools_core():
+    # First CE call = SERVICE grouping; second = USAGE_TYPE grouping (the breakdown).
+    service_resp = {
+        "ResultsByTime": [
+            {
+                "Groups": [
+                    {
+                        "Keys": ["Amazon WorkSpaces"],
+                        "Metrics": {"UnblendedCost": {"Amount": "547.53", "Unit": "USD"}},
+                    }
+                ]
+            }
+        ]
+    }
+    usage_resp = {
+        "ResultsByTime": [
+            {
+                "Groups": [
+                    {
+                        "Keys": ["APS1-AW-HWB5-0"],  # Personal AlwaysOn monthly
+                        "Metrics": {"UnblendedCost": {"Amount": "386.25", "Unit": "USD"}},
+                    },
+                    {
+                        "Keys": ["APS1-AW-HW-Pools-Stopped-Usage"],  # Pools
+                        "Metrics": {"UnblendedCost": {"Amount": "146.68", "Unit": "USD"}},
+                    },
+                    {
+                        "Keys": ["APS1-WH-ManagedInstances-Usage"],  # Core
+                        "Metrics": {"UnblendedCost": {"Amount": "14.60", "Unit": "USD"}},
+                    },
+                ]
+            }
+        ]
+    }
+    calls = {"n": 0}
+
+    def get_cost_and_usage(**kwargs):
+        # The breakdown call carries a SERVICE filter + USAGE_TYPE grouping.
+        is_breakdown = kwargs.get("GroupBy", [{}])[0].get("Key") == "USAGE_TYPE"
+        calls["n"] += 1
+        return usage_resp if is_breakdown else service_resp
+
+    ce = types.SimpleNamespace(get_cost_and_usage=get_cost_and_usage)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    summary = cost.get_euc_cost_summary_core(factory, lookback_days=30)
+
+    assert summary.workspaces_breakdown == {
+        "WorkSpaces Personal": 386.25,
+        "WorkSpaces Pools": 146.68,
+        "WorkSpaces Core (Managed Instances)": 14.6,
+    }
+    assert calls["n"] == 2  # one SERVICE call + one USAGE_TYPE breakdown call
+
+
+def test_cost_summary_classify_usage_type():
+    assert (
+        cost._classify_workspaces_usage_type("APS1-AW-HW-Pools-Stopped-Usage") == "WorkSpaces Pools"
+    )
+    assert (
+        cost._classify_workspaces_usage_type("APS1-WH-ManagedInstances-Usage")
+        == "WorkSpaces Core (Managed Instances)"
+    )
+    assert cost._classify_workspaces_usage_type("APS1-AW-HWB5-0") == "WorkSpaces Personal"
+
+
 def test_cost_summary_explicit_date_range_overrides_lookback():
     captured: dict = {}
 

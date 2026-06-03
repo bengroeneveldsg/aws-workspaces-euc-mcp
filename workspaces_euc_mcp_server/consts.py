@@ -34,6 +34,15 @@ COST_EXPLORER_REGION = "us-east-1"
 # silently dropped. "workspaces" covers Personal/Pools/Core/Web/Secure Browser; "appstream" covers
 # WorkSpaces Applications (AppStream 2.0).
 EUC_COST_EXPLORER_SERVICE_TOKENS = ["workspaces", "appstream"]
+# Cost Explorer bills WorkSpaces Personal, Pools, and Core under one "Amazon WorkSpaces" SERVICE
+# line. They can still be split by USAGE_TYPE: pool charges carry "Pools", Core Managed Instances
+# carry "ManagedInstances", everything else under that service is Personal. Matched lowercased,
+# first hit wins.
+WORKSPACES_USAGE_TYPE_CLASSES = (
+    ("pools", "WorkSpaces Pools"),
+    ("managedinstances", "WorkSpaces Core (Managed Instances)"),
+)
+WORKSPACES_USAGE_TYPE_DEFAULT_CLASS = "WorkSpaces Personal"
 # Substrings that EXCLUDE a service even when an include token matches. WorkSpaces Thin Client is
 # out of scope for this server, but its Cost Explorer name ("Amazon WorkSpaces Thin Client")
 # contains "workspaces" — so exclude it explicitly.
