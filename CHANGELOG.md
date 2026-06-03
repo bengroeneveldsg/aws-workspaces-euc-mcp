@@ -5,6 +5,15 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-06-03
+
+### Changed
+- **SSO auto-login is now ON by default** (previously opt-in via `--sso-auto-login`). When an AWS
+  call fails with an expired SSO token, the server automatically runs `aws sso login` (opens the
+  browser) and reports in the result that the token expired and that sign-in was launched — no flag
+  needed. Disable with **`--no-sso-auto-login`** or `WORKSPACES_EUC_SSO_AUTO_LOGIN=0` (e.g.
+  headless/CI). The browser approval is still required and credentials are still never stored.
+
 ## [0.1.8] - 2026-06-03
 
 ### Added

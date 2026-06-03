@@ -79,7 +79,7 @@ def _sso_hint() -> str:
         )
     return (
         " [SSO session expired — run `aws sso login --profile <your-profile>` to re-authenticate "
-        "(or launch the server with --sso-auto-login to open sign-in automatically). "
+        "(automatic sign-in is disabled via --no-sso-auto-login). "
         "Note: signing into the AWS Console does NOT refresh the CLI/SSO token.]"
     )
 
