@@ -234,6 +234,14 @@ If calls fail with an expired-token / `UnauthorizedException` error, your sessio
 re-authenticate (for SSO, `aws sso login --profile <name>`) and retry. Nothing in the MCP config
 changes.
 
+> **Tip — auto re-login (no terminal):** launch the server with **`--sso-auto-login`** (or set
+> `WORKSPACES_EUC_SSO_AUTO_LOGIN=1`). When an AWS call then fails with an expired SSO token, the
+> server **automatically runs `aws sso login` for you** — opening your browser to the approval
+> screen — so you just click *Allow* and re-ask, without ever opening a terminal. Off by default;
+> the browser approval itself is still required (inherent to SSO), and the server still never
+> stores credentials (it just invokes the AWS CLI). Note: signing into the AWS **Console** does
+> *not* refresh the CLI/SSO token — only `aws sso login` does.
+
 ## Enabling write / destructive tools — the safety gates
 
 The config above is **read-only**: the write and destructive tools are not even registered, so
@@ -329,6 +337,7 @@ workspaces-euc-mcp-server --enable-writes --enable-destructive --max-bulk-target
 | `--enable-writes` | off | Register Phase 2 lifecycle (write) tools. |
 | `--enable-destructive` | off | Allow terminate/rebuild/restore (requires `--enable-writes`). |
 | `--max-bulk-targets` | 25 | Blast-radius cap for bulk mutations (Phase 2). |
+| `--sso-auto-login` | off | On an expired SSO token, auto-launch `aws sso login` (opens your browser) instead of requiring a manual terminal command. Also via `WORKSPACES_EUC_SSO_AUTO_LOGIN=1`. |
 
 The server starts **read-only**; mutating tools require both the launch flag **and** the matching
 IAM tier.

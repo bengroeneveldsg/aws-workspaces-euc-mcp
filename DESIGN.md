@@ -65,6 +65,7 @@
     consts.py          # service/API constants, region→pricing-location maps
     models.py          # Pydantic request/response models
     clients.py         # boto3 client factory (region/profile/assume-role aware)
+    sso.py             # opt-in SSO auto-login (launches `aws sso login` on token expiry)
     tools/
       _common.py       # read_only/writes annotation helpers, try_call, paginate
       inventory.py
@@ -93,6 +94,10 @@
 - `--enable-writes`: registers Phase-2 lifecycle tools (still dry-run/confirm gated).
 - `--enable-destructive`: separately gates terminate/rebuild/restore.
 - `--max-bulk-targets N`: blast-radius cap for any bulk mutation.
+- `--sso-auto-login` (default **off**): on an expired-SSO-token error, launch `aws sso login`
+  (opens the browser) so the user needn't use a terminal. Opt-in; never stores credentials — it
+  only invokes the AWS CLI, which writes the standard token cache. Debounced so a burst of failing
+  calls opens the browser once.
 - `AWS_REGION` / `AWS_PROFILE`: standard.
 
 ## 5. Tool inventory

@@ -5,6 +5,16 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-06-03
+
+### Added
+- **`--sso-auto-login`** (opt-in; also `WORKSPACES_EUC_SSO_AUTO_LOGIN=1`): when an AWS call fails
+  with an expired SSO token, the server automatically runs `aws sso login` — opening the browser to
+  the approval screen — so the user re-authenticates without opening a terminal. Debounced so a
+  burst of failing calls opens sign-in only once. Off by default; never stores credentials (it only
+  invokes the AWS CLI). Expired-token errors also now carry a clearer hint, including that signing
+  into the AWS Console does **not** refresh the CLI/SSO token.
+
 ## [0.1.7] - 2026-06-02
 
 ### Fixed
