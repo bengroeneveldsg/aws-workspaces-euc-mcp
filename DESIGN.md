@@ -136,7 +136,7 @@ and return a synthesized result, not raw API passthroughs.
 | `get_workspace_connection_history` | Per-WorkSpace connection timeline | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
 | `get_pool_session_history` | Pool session/capacity history | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
 | `get_application_fleet_usage` | Applications fleet utilization vs capacity | `appstream:DescribeFleets`, `cloudwatch:GetMetricData` |
-| `get_euc_cost_summary` | Spend rollup filtered to EUC services | `ce:GetCostAndUsage`, `ce:GetDimensionValues` |
+| `get_euc_cost_summary` | EUC spend by service + WorkSpaces Personal/Pools/Core split (USAGE_TYPE) + daily/monthly time series | `ce:GetCostAndUsage` |
 
 **Secure Browser**
 | Tool | Purpose | IAM actions |

@@ -208,12 +208,73 @@ def _is_euc_service(service_name: str) -> bool:
     return any(token in name for token in consts.EUC_COST_EXPLORER_SERVICE_TOKENS)
 
 
+def _is_core_workspaces_service(name: str) -> bool:
+    """True for the 'Amazon WorkSpaces' SERVICE line (Personal/Pools/Core), not Applications/Web."""
+    n = name.lower()
+    if "workspaces" not in n:
+        return False
+    return not any(t in n for t in ("applications", "secure browser", "web", "thin client"))
+
+
+def _classify_workspaces_usage_type(usage_type: str) -> str:
+    """Map a WorkSpaces Cost Explorer USAGE_TYPE to Personal / Pools / Core."""
+    u = usage_type.lower()
+    for token, label in consts.WORKSPACES_USAGE_TYPE_CLASSES:
+        if token in u:
+            return label
+    return consts.WORKSPACES_USAGE_TYPE_DEFAULT_CLASS
+
+
+def _fetch_workspaces_breakdown(
+    cost_explorer: Any,
+    start: str,
+    end: str,
+    granularity: str,
+    service_names: list[str],
+    errors: list[ServiceError],
+) -> dict[str, float]:
+    """Split the 'Amazon WorkSpaces' line into Personal/Pools/Core via a USAGE_TYPE query."""
+    out: dict[str, float] = {}
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "TimePeriod": {"Start": start, "End": end},
+            "Granularity": granularity,
+            "Metrics": ["UnblendedCost"],
+            # Exact names taken from the SERVICE results above — safe to filter on (no guessing).
+            "Filter": {"Dimensions": {"Key": "SERVICE", "Values": service_names}},
+            "GroupBy": [{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
+        }
+        if next_token:
+            kwargs["NextPageToken"] = next_token
+        resp = try_call(
+            errors,
+            "AWS Cost Explorer",
+            "GetCostAndUsage",
+            lambda kwargs=kwargs: cost_explorer.get_cost_and_usage(**kwargs),
+            default={},
+        )
+        if not resp:
+            break
+        for period in resp.get("ResultsByTime", []):
+            for group in period.get("Groups", []):
+                usage_type = (group.get("Keys") or [""])[0]
+                amount = float(group.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0.0))
+                label = _classify_workspaces_usage_type(usage_type)
+                out[label] = out.get(label, 0.0) + amount
+        next_token = resp.get("NextPageToken")
+        if not next_token:
+            break
+    return {k: round(v, 2) for k, v in out.items() if round(v, 2) != 0.0}
+
+
 def get_euc_cost_summary_core(
     factory: ClientFactory,
     lookback_days: int = 30,
     granularity: str = "MONTHLY",
     start_date: str | None = None,
     end_date: str | None = None,
+    split_workspaces: bool = True,
 ) -> CostSummary:
     errors: list[ServiceError] = []
     # Cost Explorer is a global endpoint served from us-east-1, regardless of working region.
@@ -273,6 +334,17 @@ def get_euc_cost_summary_core(
         for s, a in sorted(totals_by_service.items(), key=lambda kv: kv[1], reverse=True)
     ]
     total = round(sum(item.amount for item in by_service), 2)
+
+    # Split the single "Amazon WorkSpaces" line into Personal/Pools/Core via USAGE_TYPE.
+    workspaces_breakdown: dict[str, float] = {}
+    core_ws = [
+        it.service for it in by_service if _is_core_workspaces_service(it.service) and it.amount
+    ]
+    if split_workspaces and core_ws:
+        workspaces_breakdown = _fetch_workspaces_breakdown(
+            cost_explorer, start, end, granularity, core_ws, errors
+        )
+
     by_period = [
         CostPeriod(
             start=p_start,
@@ -293,15 +365,20 @@ def get_euc_cost_summary_core(
         currency=currency,
         total=total,
         by_service=by_service,
+        workspaces_breakdown=workspaces_breakdown,
         by_period=by_period,
         errors=errors,
         notes=[
             "EUC services are selected by matching the Cost Explorer SERVICE name against the EUC "
             "keyword set (workspaces / appstream), so naming variants are not dropped.",
-            "Cost Explorer bills WorkSpaces Personal, Pools, and Core together under the single "
-            "'Amazon WorkSpaces' service; they cannot be separated via the SERVICE dimension.",
+            "Cost Explorer bills WorkSpaces Personal, Pools, and Core under one 'Amazon "
+            "WorkSpaces' SERVICE line; workspaces_breakdown splits them via USAGE_TYPE (Personal "
+            "vs Pools vs Core) — a heuristic on usage-type names, so treat sub-totals as "
+            "estimates.",
             "by_period gives the per-bucket time series (per day for DAILY, per month for MONTHLY) "
             "for charts/trends; by_service is the total across the whole window.",
+            "On MONTHLY granularity, AlwaysOn monthly bundle charges post on the 1st of the month, "
+            "so day-1 of a DAILY series legitimately spikes — it is not a Pools/Core artefact.",
         ],
     )
 
@@ -347,6 +424,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY",
         start_date: str | None = None,
         end_date: str | None = None,
+        split_workspaces: bool = True,
     ) -> dict[str, Any]:
         """Summarize EUC spend by service over a window (account-wide via Cost Explorer).
 
@@ -356,10 +434,14 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         variants are never dropped. Cost Explorer is not region-scoped, so figures are account-wide.
         Read-only.
 
-        Returns both `by_service` (totals across the whole window) and `by_period` (a per-bucket
-        time series — one entry per day for DAILY, per month for MONTHLY — each with its own
-        per-service split). Use `by_period` with granularity="DAILY" to chart daily trends in a
-        single call.
+        Returns `by_service` (totals per service), `by_period` (a per-bucket time series — one entry
+        per day for DAILY, per month for MONTHLY — for charts), and `workspaces_breakdown`: the
+        single "Amazon WorkSpaces" line split into **Personal / Pools / Core** via USAGE_TYPE
+        (which the SERVICE dimension cannot do). Use this when you need to know whether a WorkSpaces
+        figure is Personal-only or includes Pools/Core.
+
+        Note: on MONTHLY granularity, AlwaysOn monthly bundle charges post on the 1st, so day-1 of a
+        DAILY series spikes legitimately (not a Pools/Core artefact).
 
         For a specific calendar month, pass start_date/end_date instead of lookback_days — Cost
         Explorer's end is EXCLUSIVE, so for May 2026 use start_date="2026-05-01",
@@ -371,9 +453,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
             start_date: Optional inclusive start, "YYYY-MM-DD". Use with end_date; overrides
                 lookback_days.
             end_date: Optional EXCLUSIVE end, "YYYY-MM-DD". Use with start_date.
+            split_workspaces: Split the WorkSpaces line into Personal/Pools/Core (default True).
         """
         summary = get_euc_cost_summary_core(
-            factory, lookback_days, granularity, start_date, end_date
+            factory, lookback_days, granularity, start_date, end_date, split_workspaces
         )
         return summary.model_dump()
 
