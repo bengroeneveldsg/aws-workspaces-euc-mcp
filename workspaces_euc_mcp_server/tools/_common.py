@@ -13,6 +13,16 @@ from loguru import logger
 from mcp.types import ToolAnnotations
 
 from ..models import ServiceError
+from ..sso import SsoAutoLogin, looks_like_sso_token_error
+
+# Optional process-wide SSO auto-login handler, installed by the server when --sso-auto-login is on.
+_SSO_HANDLER: SsoAutoLogin | None = None
+
+
+def register_sso_handler(handler: SsoAutoLogin | None) -> None:
+    """Install the process-wide SSO auto-login handler (called once at server start)."""
+    global _SSO_HANDLER
+    _SSO_HANDLER = handler
 
 
 def read_only(title: str) -> ToolAnnotations:
@@ -49,8 +59,29 @@ def try_call(
         return fn()
     except (ClientError, BotoCoreError) as exc:
         logger.warning("AWS call failed: {} {} -> {}", service, operation, exc)
-        errors.append(ServiceError(service=service, operation=operation, message=str(exc)))
+        message = str(exc)
+        if looks_like_sso_token_error(exc):
+            message += _sso_hint()
+        errors.append(ServiceError(service=service, operation=operation, message=message))
         return default
+
+
+def _sso_hint() -> str:
+    """Append an actionable hint to SSO-token errors, auto-launching sign-in if enabled."""
+    handler = _SSO_HANDLER
+    if handler is not None and handler.enabled:
+        status = handler.maybe_login()
+        if status:
+            return f" [SSO session expired — {status}]"
+        return (
+            " [SSO session expired — a browser sign-in is already in progress; approve it, "
+            "then retry]"
+        )
+    return (
+        " [SSO session expired — run `aws sso login --profile <your-profile>` to re-authenticate "
+        "(or launch the server with --sso-auto-login to open sign-in automatically). "
+        "Note: signing into the AWS Console does NOT refresh the CLI/SSO token.]"
+    )
 
 
 def paginate(

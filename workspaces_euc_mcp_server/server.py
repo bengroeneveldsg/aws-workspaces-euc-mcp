@@ -14,7 +14,9 @@ from mcp.server.fastmcp import FastMCP
 
 from . import consts
 from .clients import ClientFactory
+from .sso import SsoAutoLogin
 from .tools import (
+    _common,
     cost,
     destructive,
     diagnostics,
@@ -37,11 +39,21 @@ def create_server(
     enable_writes: bool = False,
     enable_destructive: bool = False,
     max_bulk_targets: int = consts.DEFAULT_MAX_BULK_TARGETS,
+    sso_auto_login: bool = False,
 ) -> FastMCP:
     """Build the FastMCP server, registering tools according to the safety flags."""
     factory = ClientFactory(
         region=region, profile=profile, role_arn=role_arn, external_id=external_id
     )
+
+    # Opt-in: when an AWS call fails with an expired SSO token, auto-launch `aws sso login`
+    # (opens the browser) so the user never has to use a terminal. No-op unless enabled.
+    _common.register_sso_handler(
+        SsoAutoLogin(profile=profile, enabled=sso_auto_login) if sso_auto_login else None
+    )
+    if sso_auto_login:
+        logger.info("SSO auto-login enabled: expired tokens will trigger `aws sso login`.")
+
     mcp = FastMCP(consts.SERVER_NAME, instructions=consts.SERVER_INSTRUCTIONS)
 
     # Phase 1 read-only tools are always registered.
@@ -109,10 +121,21 @@ def main() -> None:
         default=consts.DEFAULT_MAX_BULK_TARGETS,
         help="Blast-radius cap for bulk mutations (Phase 2).",
     )
+    parser.add_argument(
+        "--sso-auto-login",
+        action="store_true",
+        help="When an AWS call fails with an expired SSO token, auto-launch `aws sso login` "
+        "(opens your browser) instead of requiring a manual terminal command. Off by default; "
+        "can also be enabled with WORKSPACES_EUC_SSO_AUTO_LOGIN=1.",
+    )
     args = parser.parse_args()
 
     if args.enable_destructive and not args.enable_writes:
         parser.error("--enable-destructive requires --enable-writes.")
+
+    sso_auto_login = args.sso_auto_login or os.environ.get(
+        "WORKSPACES_EUC_SSO_AUTO_LOGIN", ""
+    ).strip().lower() in ("1", "true", "yes")
 
     logger.remove()
     logger.add(sys.stderr, level=os.environ.get("FASTMCP_LOG_LEVEL", "INFO").upper())
@@ -125,6 +148,7 @@ def main() -> None:
         enable_writes=args.enable_writes,
         enable_destructive=args.enable_destructive,
         max_bulk_targets=args.max_bulk_targets,
+        sso_auto_login=sso_auto_login,
     )
     mcp.run()
 
