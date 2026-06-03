@@ -94,10 +94,12 @@
 - `--enable-writes`: registers Phase-2 lifecycle tools (still dry-run/confirm gated).
 - `--enable-destructive`: separately gates terminate/rebuild/restore.
 - `--max-bulk-targets N`: blast-radius cap for any bulk mutation.
-- `--sso-auto-login` (default **off**): on an expired-SSO-token error, launch `aws sso login`
-  (opens the browser) so the user needn't use a terminal. Opt-in; never stores credentials — it
-  only invokes the AWS CLI, which writes the standard token cache. Debounced so a burst of failing
-  calls opens the browser once.
+- `--sso-auto-login` / `--no-sso-auto-login` (default **on**): on an expired-SSO-token error,
+  launch `aws sso login` (opens the browser) so the user needn't use a terminal, and report in the
+  result that the token expired and sign-in was launched. Never stores credentials — it only
+  invokes the AWS CLI, which writes the standard token cache. Debounced so a burst of failing calls
+  opens the browser once. Disable with `--no-sso-auto-login` / `WORKSPACES_EUC_SSO_AUTO_LOGIN=0`
+  for headless/CI.
 - `AWS_REGION` / `AWS_PROFILE`: standard.
 
 ## 5. Tool inventory

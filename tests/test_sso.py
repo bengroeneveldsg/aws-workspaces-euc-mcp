@@ -92,6 +92,20 @@ def test_try_call_hint_when_auto_login_disabled():
     assert "Console does NOT refresh" in errors[0].message
 
 
+def test_create_server_enables_sso_auto_login_by_default():
+    from workspaces_euc_mcp_server.server import create_server
+
+    try:
+        create_server(region="us-east-1")
+        assert _common._SSO_HANDLER is not None
+        assert _common._SSO_HANDLER.enabled is True
+        # Opt-out still works.
+        create_server(region="us-east-1", sso_auto_login=False)
+        assert _common._SSO_HANDLER is None
+    finally:
+        _common.register_sso_handler(None)
+
+
 class _FakeTokenError(BotoCoreError):
     """A BotoCoreError subclass whose str() is a controllable token-error message."""
 
