@@ -5,7 +5,7 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.1.7] - 2026-06-02
+## [0.1.8] - 2026-06-03
 
 ### Added
 - **`--sso-auto-login`** (opt-in; also `WORKSPACES_EUC_SSO_AUTO_LOGIN=1`): when an AWS call fails
