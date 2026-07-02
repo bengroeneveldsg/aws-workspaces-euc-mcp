@@ -5,10 +5,12 @@
 
 `generate_inventory_report` and `list_unused_resources` are Tier 0; `audit_security_posture` is
 Tier 0 too. All synthesize across services and degrade gracefully when a signal is unavailable.
+Per-service collection runs concurrently (``gather_concurrently``); results merge in fixed order.
 """
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from .. import consts
@@ -24,7 +26,7 @@ from ..models import (
     UnusedResourcesReport,
 )
 from . import cost
-from ._common import paginate, read_only, try_call
+from ._common import LookbackDays, gather_concurrently, paginate, read_only, try_call
 
 
 def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> ResourceRecord:
@@ -45,22 +47,23 @@ def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> Reso
 
 
 def generate_inventory_report_core(factory: ClientFactory, region: str | None) -> InventoryReport:
-    errors: list[ServiceError] = []
-    sections: list[InventoryReportSection] = []
-
+    """Detailed per-resource inventory; the six per-service sections collect concurrently."""
+    # Clients are created up front on this thread; only their (thread-safe) methods run in jobs.
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
     appstream = factory.client(consts.APPSTREAM_API, region=region)
     secure_browser = factory.client(consts.SECURE_BROWSER_API, region=region)
+    instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
 
-    personal = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_PERSONAL,
-        "DescribeWorkspaces",
-        lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
-        default=[],
-    )
-    sections.append(
-        InventoryReportSection(
+    def _personal_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        personal = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaces",
+            lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
+            default=[],
+        )
+        section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_PERSONAL,
             resource_type="WorkSpace",
             resources=[
@@ -97,17 +100,18 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                 for w in (personal or [])
             ],
         )
-    )
+        return section, errors
 
-    pools = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_POOLS,
-        "DescribeWorkspacesPools",
-        lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
-        default=[],
-    )
-    sections.append(
-        InventoryReportSection(
+    def _pools_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        pools = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_POOLS,
+            "DescribeWorkspacesPools",
+            lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
+            default=[],
+        )
+        section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_POOLS,
             resource_type="WorkSpacesPool",
             resources=[
@@ -128,17 +132,18 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                 for p in (pools or [])
             ],
         )
-    )
+        return section, errors
 
-    fleets = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeFleets",
-        lambda: paginate(appstream.describe_fleets, "Fleets"),
-        default=[],
-    )
-    sections.append(
-        InventoryReportSection(
+    def _fleets_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        fleets = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "DescribeFleets",
+            lambda: paginate(appstream.describe_fleets, "Fleets"),
+            default=[],
+        )
+        section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
             resource_type="Fleet",
             resources=[
@@ -161,62 +166,64 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                 for f in (fleets or [])
             ],
         )
-    )
+        return section, errors
 
-    stacks = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeStacks",
-        lambda: paginate(appstream.describe_stacks, "Stacks"),
-        default=[],
-    )
-    stack_records: list[ResourceRecord] = []
-    for s in stacks or []:
-        stack_name = s.get("Name", "")
-        associated = try_call(
+    def _stacks_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        stacks = try_call(
             errors,
             consts.PRODUCT_WORKSPACES_APPLICATIONS,
-            "ListAssociatedFleets",
-            lambda stack_name=stack_name: paginate(
-                appstream.list_associated_fleets, "Names", StackName=stack_name
-            ),
+            "DescribeStacks",
+            lambda: paginate(appstream.describe_stacks, "Stacks"),
             default=[],
         )
-        stack_records.append(
-            ResourceRecord(
-                id=stack_name,
-                name=s.get("DisplayName"),
-                attributes={
-                    "description": s.get("Description"),
-                    "associated_fleets": associated or [],
-                    "user_settings": s.get("UserSettings"),
-                    "storage_connectors": s.get("StorageConnectors"),
-                    "application_settings": s.get("ApplicationSettings"),
-                },
+        stack_records: list[ResourceRecord] = []
+        for s in stacks or []:
+            stack_name = s.get("Name", "")
+            associated = try_call(
+                errors,
+                consts.PRODUCT_WORKSPACES_APPLICATIONS,
+                "ListAssociatedFleets",
+                lambda stack_name=stack_name: paginate(
+                    appstream.list_associated_fleets, "Names", StackName=stack_name
+                ),
+                default=[],
             )
-        )
-    sections.append(
-        InventoryReportSection(
+            stack_records.append(
+                ResourceRecord(
+                    id=stack_name,
+                    name=s.get("DisplayName"),
+                    attributes={
+                        "description": s.get("Description"),
+                        "associated_fleets": associated or [],
+                        "user_settings": s.get("UserSettings"),
+                        "storage_connectors": s.get("StorageConnectors"),
+                        "application_settings": s.get("ApplicationSettings"),
+                    },
+                )
+            )
+        section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
             resource_type="Stack",
             resources=stack_records,
         )
-    )
+        return section, errors
 
-    portals = try_call(
-        errors,
-        consts.PRODUCT_SECURE_BROWSER,
-        "ListPortals",
-        lambda: paginate(
-            secure_browser.list_portals,
-            "portals",
-            pagination_in="nextToken",
-            pagination_out="nextToken",
-        ),
-        default=[],
-    )
-    sections.append(
-        InventoryReportSection(
+    def _portals_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        portals = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "ListPortals",
+            lambda: paginate(
+                secure_browser.list_portals,
+                "portals",
+                pagination_in="nextToken",
+                pagination_out="nextToken",
+            ),
+            default=[],
+        )
+        section = InventoryReportSection(
             service=consts.PRODUCT_SECURE_BROWSER,
             resource_type="Portal",
             resources=[
@@ -236,176 +243,215 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                 for p in (portals or [])
             ],
         )
-    )
+        return section, errors
 
-    instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
-    instances = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
-        "ListWorkspaceInstances",
-        lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
-        default=[],
-    )
-    # Enrich with EC2 details (type/state/launch/IP) for the backing instances.
-    ec2_ids = [
-        eid
-        for i in (instances or [])
-        if (eid := (i.get("EC2ManagedInstance") or {}).get("InstanceId"))
-    ]
-    ec2_by_id: dict[str, dict] = {}
-    if ec2_ids:
-        ec2 = factory.client(consts.EC2_API, region=region)
-        reservations = try_call(
+    def _instances_section() -> tuple[InventoryReportSection, list[ServiceError]]:
+        errors: list[ServiceError] = []
+        instances = try_call(
             errors,
             consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
-            "DescribeInstances",
-            lambda: ec2.describe_instances(InstanceIds=ec2_ids).get("Reservations", []),
+            "ListWorkspaceInstances",
+            lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
             default=[],
         )
-        for res in reservations or []:
-            for inst in res.get("Instances", []):
-                ec2_by_id[inst.get("InstanceId", "")] = inst
-    sections.append(
-        InventoryReportSection(
+        # Enrich with EC2 details (type/state/launch/IP) for the backing instances.
+        ec2_ids = [
+            eid
+            for i in (instances or [])
+            if (eid := (i.get("EC2ManagedInstance") or {}).get("InstanceId"))
+        ]
+        ec2_by_id: dict[str, dict] = {}
+        if ec2_ids:
+            ec2 = factory.client(consts.EC2_API, region=region)
+            reservations = try_call(
+                errors,
+                consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+                "DescribeInstances",
+                lambda: ec2.describe_instances(InstanceIds=ec2_ids).get("Reservations", []),
+                default=[],
+            )
+            for res in reservations or []:
+                for inst in res.get("Instances", []):
+                    ec2_by_id[inst.get("InstanceId", "")] = inst
+        section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
             resource_type="ManagedInstance",
             resources=[_managed_instance_record(i, ec2_by_id) for i in (instances or [])],
         )
-    )
+        return section, errors
 
+    results = gather_concurrently(
+        _personal_section,
+        _pools_section,
+        _fleets_section,
+        _stacks_section,
+        _portals_section,
+        _instances_section,
+    )
+    sections = [section for section, _ in results]
+    errors = [error for _, job_errors in results for error in job_errors]
     total = sum(len(s.resources) for s in sections)
     return InventoryReport(region=region, total_resources=total, sections=sections, errors=errors)
 
 
 def audit_security_posture_core(factory: ClientFactory, region: str | None) -> AuditReport:
-    errors: list[ServiceError] = []
-    findings: list[Finding] = []
-    resources_checked: dict[str, int] = {}
-
+    """Security-posture audit; the four per-service checks run concurrently."""
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
-
-    personal = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_PERSONAL,
-        "DescribeWorkspaces",
-        lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
-        default=[],
-    )
-    resources_checked["workspaces"] = len(personal or [])
-    for w in personal or []:
-        wid = w.get("WorkspaceId", "")
-        root_enc = w.get("RootVolumeEncryptionEnabled")
-        user_enc = w.get("UserVolumeEncryptionEnabled")
-        unencrypted = [
-            name
-            for name, enabled in (("root", root_enc), ("user", user_enc))
-            if enabled is not True
-        ]
-        if unencrypted:
-            findings.append(
-                Finding(
-                    severity="warning",
-                    title=f"WorkSpace volumes not encrypted: {', '.join(unencrypted)}",
-                    detail=f"WorkSpace {wid} has unencrypted {', '.join(unencrypted)} volume(s); "
-                    "encryption can only be set at creation time.",
-                    recommendation="Recreate the WorkSpace with root/user volume encryption.",
-                    resource_id=wid,
-                )
-            )
-
-    directories = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_PERSONAL,
-        "DescribeWorkspaceDirectories",
-        lambda: paginate(workspaces.describe_workspace_directories, "Directories"),
-        default=[],
-    )
-    resources_checked["directories"] = len(directories or [])
-    for d in directories or []:
-        did = d.get("DirectoryId", "")
-        ip_groups = d.get("ipGroupIds") or []
-        if not ip_groups:
-            findings.append(
-                Finding(
-                    severity="warning",
-                    title="Directory has no IP access control groups",
-                    detail=f"Directory {did} has no IP access control groups, so WorkSpaces "
-                    "connections are not restricted by source IP.",
-                    recommendation="Attach an IP access control group to restrict trusted ranges.",
-                    resource_id=did,
-                )
-            )
-
-    # Secure Browser portals: flag relaxed data-egress controls (download/copy/print enabled).
     secure = factory.client(consts.SECURE_BROWSER_API, region=region)
-    portals = try_call(
-        errors,
-        consts.PRODUCT_SECURE_BROWSER,
-        "ListPortals",
-        lambda: paginate(
-            secure.list_portals, "portals", pagination_in="nextToken", pagination_out="nextToken"
-        ),
-        default=[],
-    )
-    resources_checked["portals"] = len(portals or [])
-    for p in portals or []:
-        arn = p.get("portalArn", "")
-        us_arn = p.get("userSettingsArn")
-        if not us_arn:
-            continue
-        us = try_call(
+    appstream = factory.client(consts.APPSTREAM_API, region=region)
+
+    def _check_workspace_encryption() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        personal = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaces",
+            lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
+            default=[],
+        )
+        for w in personal or []:
+            wid = w.get("WorkspaceId", "")
+            root_enc = w.get("RootVolumeEncryptionEnabled")
+            user_enc = w.get("UserVolumeEncryptionEnabled")
+            unencrypted = [
+                name
+                for name, enabled in (("root", root_enc), ("user", user_enc))
+                if enabled is not True
+            ]
+            if unencrypted:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title=f"WorkSpace volumes not encrypted: {', '.join(unencrypted)}",
+                        detail=f"WorkSpace {wid} has unencrypted {', '.join(unencrypted)} "
+                        "volume(s); encryption can only be set at creation time.",
+                        recommendation="Recreate the WorkSpace with root/user volume encryption.",
+                        resource_id=wid,
+                    )
+                )
+        return findings, {"workspaces": len(personal or [])}, errors
+
+    def _check_directories() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        directories = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaceDirectories",
+            lambda: paginate(workspaces.describe_workspace_directories, "Directories"),
+            default=[],
+        )
+        for d in directories or []:
+            did = d.get("DirectoryId", "")
+            ip_groups = d.get("ipGroupIds") or []
+            if not ip_groups:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title="Directory has no IP access control groups",
+                        detail=f"Directory {did} has no IP access control groups, so WorkSpaces "
+                        "connections are not restricted by source IP.",
+                        recommendation="Attach an IP access control group to restrict trusted "
+                        "ranges.",
+                        resource_id=did,
+                    )
+                )
+        return findings, {"directories": len(directories or [])}, errors
+
+    def _check_portals() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        # Secure Browser portals: flag relaxed data-egress controls (download/copy/print enabled).
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        portals = try_call(
             errors,
             consts.PRODUCT_SECURE_BROWSER,
-            "GetUserSettings",
-            lambda us_arn=us_arn: secure.get_user_settings(userSettingsArn=us_arn).get(
-                "userSettings", {}
+            "ListPortals",
+            lambda: paginate(
+                secure.list_portals,
+                "portals",
+                pagination_in="nextToken",
+                pagination_out="nextToken",
             ),
-            default={},
+            default=[],
         )
-        enabled = [
-            flag for flag in consts.SECURE_BROWSER_EGRESS_FLAGS if (us or {}).get(flag) == "Enabled"
-        ]
-        if enabled:
-            findings.append(
-                Finding(
-                    severity="warning",
-                    title=f"Secure Browser portal allows data egress: {', '.join(enabled)}",
-                    detail=f"Portal {p.get('displayName') or arn} permits {', '.join(enabled)} — "
-                    "content can leave the managed browser session.",
-                    recommendation="Disable unneeded download/copy/print in the user settings.",
-                    resource_id=arn,
-                )
+        for p in portals or []:
+            arn = p.get("portalArn", "")
+            us_arn = p.get("userSettingsArn")
+            if not us_arn:
+                continue
+            us = try_call(
+                errors,
+                consts.PRODUCT_SECURE_BROWSER,
+                "GetUserSettings",
+                lambda us_arn=us_arn: secure.get_user_settings(userSettingsArn=us_arn).get(
+                    "userSettings", {}
+                ),
+                default={},
             )
+            enabled = [
+                flag
+                for flag in consts.SECURE_BROWSER_EGRESS_FLAGS
+                if (us or {}).get(flag) == "Enabled"
+            ]
+            if enabled:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title=f"Secure Browser portal allows data egress: {', '.join(enabled)}",
+                        detail=f"Portal {p.get('displayName') or arn} permits "
+                        f"{', '.join(enabled)} — content can leave the managed browser session.",
+                        recommendation="Disable unneeded download/copy/print in the user settings.",
+                        resource_id=arn,
+                    )
+                )
+        return findings, {"portals": len(portals or [])}, errors
 
-    # Applications stacks: flag relaxed UserSettings that permit local data egress.
-    appstream = factory.client(consts.APPSTREAM_API, region=region)
-    stacks = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeStacks",
-        lambda: paginate(appstream.describe_stacks, "Stacks"),
-        default=[],
-    )
-    resources_checked["stacks"] = len(stacks or [])
-    egress_actions = {"CLIPBOARD_COPY_TO_LOCAL_DEVICE", "FILE_DOWNLOAD", "PRINTING_TO_LOCAL_DEVICE"}
-    for s in stacks or []:
-        name = s.get("Name", "")
-        enabled = [
-            u.get("Action")
-            for u in (s.get("UserSettings") or [])
-            if u.get("Action") in egress_actions and u.get("Permission") == "ENABLED"
-        ]
-        if enabled:
-            findings.append(
-                Finding(
-                    severity="warning",
-                    title=f"WorkSpaces Applications stack allows data egress: {', '.join(enabled)}",
-                    detail=f"Stack {name} permits {', '.join(enabled)} to the local device.",
-                    recommendation="Disable unneeded copy-to-local/file-download/local-printing "
-                    "in the stack user settings.",
-                    resource_id=name,
+    def _check_stacks() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        # Applications stacks: flag relaxed UserSettings that permit local data egress.
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        stacks = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "DescribeStacks",
+            lambda: paginate(appstream.describe_stacks, "Stacks"),
+            default=[],
+        )
+        egress_actions = {
+            "CLIPBOARD_COPY_TO_LOCAL_DEVICE",
+            "FILE_DOWNLOAD",
+            "PRINTING_TO_LOCAL_DEVICE",
+        }
+        for s in stacks or []:
+            name = s.get("Name", "")
+            enabled = [
+                u.get("Action")
+                for u in (s.get("UserSettings") or [])
+                if u.get("Action") in egress_actions and u.get("Permission") == "ENABLED"
+            ]
+            if enabled:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title=f"WorkSpaces Applications stack allows data egress: "
+                        f"{', '.join(enabled)}",
+                        detail=f"Stack {name} permits {', '.join(enabled)} to the local device.",
+                        recommendation="Disable unneeded copy-to-local/file-download/"
+                        "local-printing in the stack user settings.",
+                        resource_id=name,
+                    )
                 )
-            )
+        return findings, {"stacks": len(stacks or [])}, errors
+
+    results = gather_concurrently(
+        _check_workspace_encryption, _check_directories, _check_portals, _check_stacks
+    )
+    findings = [f for job_findings, _, _ in results for f in job_findings]
+    resources_checked: dict[str, int] = {}
+    for _, checked, _ in results:
+        resources_checked.update(checked)
+    errors = [e for _, _, job_errors in results for e in job_errors]
 
     if not findings and any(resources_checked.values()):
         findings.append(
@@ -431,43 +477,49 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
 
 
 def list_unused_resources_core(
-    factory: ClientFactory, region: str | None, lookback_days: int = 14
+    factory: ClientFactory, region: str | None, lookback_days: LookbackDays = 14
 ) -> UnusedResourcesReport:
-    errors: list[ServiceError] = []
-    items: list[UnusedResource] = []
-
-    utilization = cost.analyze_workspace_utilization_core(factory, region, lookback_days)
-    errors.extend(utilization.errors)
-    for w in utilization.workspaces:
-        if w.classification == "unused":
-            items.append(
-                UnusedResource(
-                    service=consts.PRODUCT_WORKSPACES_PERSONAL,
-                    resource_type="WorkSpace",
-                    id=w.workspace_id,
-                    reason=f"No user connections in the last {lookback_days} days.",
-                )
-            )
-
+    # Pre-create the appstream client on this thread (the utilization job creates its own).
     appstream = factory.client(consts.APPSTREAM_API, region=region)
-    fleets = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeFleets",
-        lambda: paginate(appstream.describe_fleets, "Fleets"),
-        default=[],
-    )
-    for f in fleets or []:
-        capacity = f.get("ComputeCapacityStatus", {})
-        if f.get("State") == "STOPPED" or capacity.get("Desired") == 0:
-            items.append(
-                UnusedResource(
-                    service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
-                    resource_type="Fleet",
-                    id=f.get("Name", ""),
-                    reason="Fleet is stopped or has zero desired capacity.",
-                )
+
+    def _unused_workspaces() -> tuple[list[UnusedResource], list[ServiceError]]:
+        utilization = cost.analyze_workspace_utilization_core(factory, region, lookback_days)
+        items = [
+            UnusedResource(
+                service=consts.PRODUCT_WORKSPACES_PERSONAL,
+                resource_type="WorkSpace",
+                id=w.workspace_id,
+                reason=f"No user connections in the last {lookback_days} days.",
             )
+            for w in utilization.workspaces
+            if w.classification == "unused"
+        ]
+        return items, list(utilization.errors)
+
+    def _idle_fleets() -> tuple[list[UnusedResource], list[ServiceError]]:
+        errors: list[ServiceError] = []
+        fleets = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "DescribeFleets",
+            lambda: paginate(appstream.describe_fleets, "Fleets"),
+            default=[],
+        )
+        items = [
+            UnusedResource(
+                service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
+                resource_type="Fleet",
+                id=f.get("Name", ""),
+                reason="Fleet is stopped or has zero desired capacity.",
+            )
+            for f in fleets or []
+            if f.get("State") == "STOPPED" or f.get("ComputeCapacityStatus", {}).get("Desired") == 0
+        ]
+        return items, errors
+
+    results = gather_concurrently(_unused_workspaces, _idle_fleets)
+    items = [item for job_items, _ in results for item in job_items]
+    errors = [error for _, job_errors in results for error in job_errors]
 
     return UnusedResourcesReport(
         region=region,
@@ -494,7 +546,9 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         Args:
             region: AWS region. Defaults to the server's configured region.
         """
-        report = generate_inventory_report_core(factory, region or factory.region)
+        report = await asyncio.to_thread(
+            generate_inventory_report_core, factory, region or factory.region
+        )
         return report.model_dump()
 
     async def audit_security_posture(region: str | None = None) -> dict[str, Any]:
@@ -506,11 +560,13 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         Args:
             region: AWS region. Defaults to the server's configured region.
         """
-        report = audit_security_posture_core(factory, region or factory.region)
+        report = await asyncio.to_thread(
+            audit_security_posture_core, factory, region or factory.region
+        )
         return report.model_dump()
 
     async def list_unused_resources(
-        region: str | None = None, lookback_days: int = 14
+        region: str | None = None, lookback_days: LookbackDays = 14
     ) -> dict[str, Any]:
         """List candidate idle/unused EUC resources worth reclaiming.
 
@@ -521,7 +577,9 @@ def register(mcp: Any, factory: ClientFactory) -> None:
             region: AWS region. Defaults to the server's configured region.
             lookback_days: Window for WorkSpace usage (default 14).
         """
-        report = list_unused_resources_core(factory, region or factory.region, lookback_days)
+        report = await asyncio.to_thread(
+            list_unused_resources_core, factory, region or factory.region, lookback_days
+        )
         return report.model_dump()
 
     mcp.add_tool(generate_inventory_report, annotations=read_only("Inventory report"))

@@ -1,0 +1,8 @@
+workspaces-euc-mcp-server
+Copyright 2026 bengroeneveldsg
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This is an independent, community project. It is not an official AWS product, service, or
+solution, and is not affiliated with or endorsed by Amazon Web Services. It follows the design
+conventions of the AWS Labs MCP project (https://github.com/awslabs/mcp).

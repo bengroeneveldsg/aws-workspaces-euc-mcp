@@ -11,6 +11,7 @@ before expiry, and no tool code changes (every tool just calls ``factory.client(
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import boto3
@@ -43,6 +44,8 @@ class ClientFactory:
         # account). Assumed credentials auto-refresh before expiry, so clients keep working.
         self._session = self._build_assumed_session(role_arn) if role_arn else self._base_session
         self._cache: dict[tuple[str, str | None], Any] = {}
+        # boto3 client *creation* is not thread-safe; cross-service tools fan out on threads.
+        self._lock = threading.Lock()
 
     def _build_assumed_session(self, role_arn: str) -> boto3.Session:
         """Build a boto3 Session backed by auto-refreshing sts:AssumeRole credentials."""
@@ -92,10 +95,11 @@ class ClientFactory:
         """
         target_region = region or self._region
         key = (service_name, target_region)
-        if key not in self._cache:
-            self._cache[key] = self._session.client(
-                service_name,
-                region_name=target_region,
-                config=self._config(),
-            )
-        return self._cache[key]
+        with self._lock:
+            if key not in self._cache:
+                self._cache[key] = self._session.client(
+                    service_name,
+                    region_name=target_region,
+                    config=self._config(),
+                )
+            return self._cache[key]

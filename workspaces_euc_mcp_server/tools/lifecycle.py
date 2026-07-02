@@ -24,7 +24,7 @@ from typing import Any, Literal
 from .. import consts
 from ..clients import ClientFactory
 from ..models import ServiceError, TargetResult, WriteOutcome
-from ._common import try_call, writes
+from ._common import CapacityCount, try_call, writes
 
 _VALID_RUNNING_MODES = {"AUTO_STOP", "ALWAYS_ON"}
 
@@ -255,7 +255,7 @@ def update_pool_capacity_core(
     factory: ClientFactory,
     region: str | None,
     pool_id: str,
-    desired_user_sessions: int,
+    desired_user_sessions: CapacityCount,
     confirm: bool,
     max_bulk_targets: int,
 ) -> WriteOutcome:
@@ -315,7 +315,7 @@ def update_fleet_capacity_core(
     factory: ClientFactory,
     region: str | None,
     fleet_name: str,
-    desired_instances: int,
+    desired_instances: CapacityCount,
     confirm: bool,
     max_bulk_targets: int,
 ) -> WriteOutcome:
@@ -462,7 +462,10 @@ def register(
         return outcome.model_dump()
 
     async def update_workspaces_pool_capacity(
-        pool_id: str, desired_user_sessions: int, confirm: bool = False, region: str | None = None
+        pool_id: str,
+        desired_user_sessions: CapacityCount,
+        confirm: bool = False,
+        region: str | None = None,
     ) -> dict[str, Any]:
         """Set a WorkSpaces Pool's desired user-session capacity.
 
@@ -515,7 +518,10 @@ def register(
         return outcome.model_dump()
 
     async def update_application_fleet_capacity(
-        fleet_name: str, desired_instances: int, confirm: bool = False, region: str | None = None
+        fleet_name: str,
+        desired_instances: CapacityCount,
+        confirm: bool = False,
+        region: str | None = None,
     ) -> dict[str, Any]:
         """Set a WorkSpaces Applications (formerly AppStream 2.0) fleet's desired instance capacity.
 

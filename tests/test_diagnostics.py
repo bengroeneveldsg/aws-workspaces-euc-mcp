@@ -379,3 +379,46 @@ def test_application_fleet_not_found():
     diag = diagnostics.diagnose_application_fleet_core(factory, "nope", "us-east-1")
 
     assert diag.status == "not_found"
+
+
+def test_active_alarms_filters_to_euc_namespaces():
+    alarms = [
+        {  # plain metric alarm on WorkSpaces -> included
+            "AlarmName": "ws-cpu-high",
+            "Namespace": "AWS/WorkSpaces",
+            "MetricName": "CPUUsage",
+            "Dimensions": [{"Name": "WorkspaceId", "Value": "ws-abc123"}],
+            "StateReason": "Threshold crossed",
+            "ActionsEnabled": True,
+        },
+        {  # metric-math alarm carrying its metric in Metrics[] -> included (AppStream)
+            "AlarmName": "fleet-capacity",
+            "Metrics": [
+                {
+                    "MetricStat": {
+                        "Metric": {
+                            "Namespace": "AWS/AppStream",
+                            "MetricName": "CapacityUtilization",
+                        }
+                    }
+                }
+            ],
+        },
+        {  # non-EUC alarm -> excluded but counted in the account total
+            "AlarmName": "ec2-cpu",
+            "Namespace": "AWS/EC2",
+            "MetricName": "CPUUtilization",
+        },
+    ]
+    cloudwatch = types.SimpleNamespace(describe_alarms=lambda **_: {"MetricAlarms": alarms})
+    factory = FakeFactory({consts.CLOUDWATCH_API: cloudwatch})
+
+    report = diagnostics.get_euc_active_alarms_core(factory, "us-east-1")
+
+    assert report.total_account_alarms_in_alarm == 3
+    assert report.euc_alarms_in_alarm == 2
+    by_name = {a.name: a for a in report.alarms}
+    assert by_name["ws-cpu-high"].service == "Amazon WorkSpaces"
+    assert by_name["ws-cpu-high"].dimensions == {"WorkspaceId": "ws-abc123"}
+    assert by_name["fleet-capacity"].service == "Amazon WorkSpaces Applications"
+    assert "ec2-cpu" not in by_name

@@ -10,124 +10,104 @@ result, rather than mirroring one API call. Collection is best-effort — a fail
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import EucInventorySummary, InventoryError, ServiceInventory
-from ._common import count_by, paginate, read_only, try_call
+from ._common import count_by, gather_concurrently, paginate, read_only, try_call
 
 
 def collect_inventory(factory: ClientFactory, region: str | None) -> EucInventorySummary:
-    """Collect a cross-service EUC inventory for one region. Pure/testable core."""
-    errors: list[InventoryError] = []
-    services: list[ServiceInventory] = []
+    """Collect a cross-service EUC inventory for one region. Pure/testable core.
 
+    The per-service collectors run concurrently (see ``gather_concurrently``); results and errors
+    are merged in a fixed service order so output is deterministic.
+    """
+    # Clients are created up front on this thread; only their (thread-safe) methods run in jobs.
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
-
-    personal = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_PERSONAL,
-        "DescribeWorkspaces",
-        lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
-    )
-    if personal is not None:
-        services.append(
-            ServiceInventory(
-                service=consts.PRODUCT_WORKSPACES_PERSONAL,
-                resource_type="WorkSpace",
-                count=len(personal),
-                by_state=count_by(personal, "State"),
-            )
-        )
-
-    pools = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_POOLS,
-        "DescribeWorkspacesPools",
-        lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
-    )
-    if pools is not None:
-        services.append(
-            ServiceInventory(
-                service=consts.PRODUCT_WORKSPACES_POOLS,
-                resource_type="WorkSpacesPool",
-                count=len(pools),
-                by_state=count_by(pools, "State"),
-            )
-        )
-
     appstream = factory.client(consts.APPSTREAM_API, region=region)
-    fleets = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeFleets",
-        lambda: paginate(appstream.describe_fleets, "Fleets"),
-    )
-    if fleets is not None:
-        services.append(
-            ServiceInventory(
-                service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
-                resource_type="Fleet",
-                count=len(fleets),
-                by_state=count_by(fleets, "State"),
-            )
-        )
-
-    stacks = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_APPLICATIONS,
-        "DescribeStacks",
-        lambda: paginate(appstream.describe_stacks, "Stacks"),
-    )
-    if stacks is not None:
-        services.append(
-            ServiceInventory(
-                service=consts.PRODUCT_WORKSPACES_APPLICATIONS,
-                resource_type="Stack",
-                count=len(stacks),
-            )
-        )
-
     secure_browser = factory.client(consts.SECURE_BROWSER_API, region=region)
-    portals = try_call(
-        errors,
-        consts.PRODUCT_SECURE_BROWSER,
-        "ListPortals",
-        lambda: paginate(
-            secure_browser.list_portals,
-            "portals",
-            pagination_in="nextToken",
-            pagination_out="nextToken",
-        ),
-    )
-    if portals is not None:
-        services.append(
-            ServiceInventory(
-                service=consts.PRODUCT_SECURE_BROWSER,
-                resource_type="Portal",
-                count=len(portals),
-                by_state=count_by(portals, "portalStatus"),
-            )
-        )
-
     instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
-    instances = try_call(
-        errors,
-        consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
-        "ListWorkspaceInstances",
-        lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
-    )
-    if instances is not None:
-        services.append(
+
+    # (product, resource_type, operation, fetch, state_key)
+    specs: list[tuple[str, str, str, Callable[[], list[dict[str, Any]]], str | None]] = [
+        (
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "WorkSpace",
+            "DescribeWorkspaces",
+            lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
+            "State",
+        ),
+        (
+            consts.PRODUCT_WORKSPACES_POOLS,
+            "WorkSpacesPool",
+            "DescribeWorkspacesPools",
+            lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
+            "State",
+        ),
+        (
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "Fleet",
+            "DescribeFleets",
+            lambda: paginate(appstream.describe_fleets, "Fleets"),
+            "State",
+        ),
+        (
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "Stack",
+            "DescribeStacks",
+            lambda: paginate(appstream.describe_stacks, "Stacks"),
+            None,
+        ),
+        (
+            consts.PRODUCT_SECURE_BROWSER,
+            "Portal",
+            "ListPortals",
+            lambda: paginate(
+                secure_browser.list_portals,
+                "portals",
+                pagination_in="nextToken",
+                pagination_out="nextToken",
+            ),
+            "portalStatus",
+        ),
+        (
+            consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
+            "ManagedInstance",
+            "ListWorkspaceInstances",
+            lambda: paginate(instances_client.list_workspace_instances, "WorkspaceInstances"),
+            "ProvisionState",
+        ),
+    ]
+
+    def _collect(
+        product: str,
+        resource_type: str,
+        operation: str,
+        fetch: Callable[[], list[dict[str, Any]]],
+        state_key: str | None,
+    ) -> tuple[ServiceInventory | None, list[InventoryError]]:
+        errors: list[InventoryError] = []
+        items = try_call(errors, product, operation, fetch)
+        if items is None:
+            return None, errors
+        return (
             ServiceInventory(
-                service=consts.PRODUCT_WORKSPACES_CORE_INSTANCES,
-                resource_type="ManagedInstance",
-                count=len(instances),
-                by_state=count_by(instances, "ProvisionState"),
-            )
+                service=product,
+                resource_type=resource_type,
+                count=len(items),
+                by_state=count_by(items, state_key) if state_key else {},
+            ),
+            errors,
         )
 
+    results = gather_concurrently(*[lambda spec=spec: _collect(*spec) for spec in specs])
+
+    services = [inventory for inventory, _ in results if inventory is not None]
+    errors = [error for _, job_errors in results for error in job_errors]
     total = sum(s.count for s in services)
     return EucInventorySummary(
         region=region,
@@ -152,7 +132,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
             region: AWS region to inventory. Defaults to the server's configured region.
         """
         target_region = region or factory.region
-        summary = collect_inventory(factory, target_region)
+        # to_thread keeps the (blocking, multi-call) collection off the MCP event loop.
+        summary = await asyncio.to_thread(collect_inventory, factory, target_region)
         return summary.model_dump()
 
     mcp.add_tool(get_euc_inventory_summary, annotations=read_only("EUC inventory summary"))

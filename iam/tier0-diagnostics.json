@@ -63,6 +63,7 @@
         "ds:DescribeDirectories",
         "cloudwatch:GetMetricData",
         "cloudwatch:ListMetrics",
+        "cloudwatch:DescribeAlarms",
         "application-autoscaling:DescribeScalingActivities",
         "ec2:DescribeInstances",
         "cloudtrail:LookupEvents",

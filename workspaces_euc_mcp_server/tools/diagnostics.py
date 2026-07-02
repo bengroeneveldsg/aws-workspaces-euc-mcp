@@ -11,14 +11,22 @@ signal is recorded and the diagnosis proceeds with what it could gather.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .. import consts
 from ..clients import ClientFactory
-from ..models import Diagnosis, DirectoryHealthReport, Finding, ServiceError
-from ._common import read_only, try_call
+from ..models import (
+    ActiveAlarm,
+    ActiveAlarmsReport,
+    Diagnosis,
+    DirectoryHealthReport,
+    Finding,
+    ServiceError,
+)
+from ._common import LookbackHours, paginate, read_only, try_call
 
 # AWS Directory Service directory IDs look like d-xxxxxxxxxx. WorkSpaces Pools and other
 # WorkSpaces-managed directories use other prefixes (e.g. wsd-...) that are NOT backed by AWS
@@ -92,7 +100,7 @@ def diagnose_workspace_connectivity_core(
     factory: ClientFactory,
     workspace_id: str,
     region: str | None,
-    lookback_hours: int = 24,
+    lookback_hours: LookbackHours = 24,
 ) -> Diagnosis:
     errors: list[ServiceError] = []
     findings: list[Finding] = []
@@ -408,7 +416,7 @@ def diagnose_application_fleet_core(
     factory: ClientFactory,
     fleet_name: str,
     region: str | None,
-    lookback_hours: int = 24,
+    lookback_hours: LookbackHours = 24,
 ) -> Diagnosis:
     errors: list[ServiceError] = []
     findings: list[Finding] = []
@@ -589,7 +597,7 @@ def diagnose_pool_core(
     factory: ClientFactory,
     pool_id: str,
     region: str | None,
-    lookback_hours: int = 24,
+    lookback_hours: LookbackHours = 24,
 ) -> Diagnosis:
     errors: list[ServiceError] = []
     findings: list[Finding] = []
@@ -726,6 +734,81 @@ def diagnose_pool_core(
 
 
 # --------------------------------------------------------------------------------------
+# Active CloudWatch alarms on EUC resources
+# --------------------------------------------------------------------------------------
+
+
+def _alarm_euc_namespace(alarm: dict[str, Any]) -> str | None:
+    """The EUC CloudWatch namespace an alarm watches, or None if it is not an EUC alarm."""
+    namespace = alarm.get("Namespace")
+    if namespace in consts.EUC_CLOUDWATCH_NAMESPACES:
+        return namespace
+    # Metric-math / multi-metric alarms carry their metrics in a Metrics list instead.
+    for entry in alarm.get("Metrics") or []:
+        metric_ns = ((entry.get("MetricStat") or {}).get("Metric") or {}).get("Namespace")
+        if metric_ns in consts.EUC_CLOUDWATCH_NAMESPACES:
+            return metric_ns
+    return None
+
+
+def get_euc_active_alarms_core(factory: ClientFactory, region: str | None) -> ActiveAlarmsReport:
+    """CloudWatch alarms currently in ALARM whose metrics belong to EUC namespaces."""
+    errors: list[ServiceError] = []
+    cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
+
+    raw = (
+        try_call(
+            errors,
+            "Amazon CloudWatch",
+            "DescribeAlarms",
+            lambda: paginate(cloudwatch.describe_alarms, "MetricAlarms", StateValue="ALARM"),
+            default=[],
+        )
+        or []
+    )
+
+    alarms: list[ActiveAlarm] = []
+    for alarm in raw:
+        namespace = _alarm_euc_namespace(alarm)
+        if not namespace:
+            continue
+        updated = alarm.get("StateUpdatedTimestamp")
+        name = alarm.get("AlarmName", "")
+        autoscaling = bool(re.search(r"scale.?in|scale.?out|scaling.alarm", name, re.IGNORECASE))
+        alarms.append(
+            ActiveAlarm(
+                name=name,
+                service=consts.EUC_CLOUDWATCH_NAMESPACES[namespace],
+                namespace=namespace,
+                metric_name=alarm.get("MetricName"),
+                dimensions={
+                    d.get("Name", ""): d.get("Value", "") for d in alarm.get("Dimensions", [])
+                },
+                state_reason=alarm.get("StateReason"),
+                state_since=updated.isoformat() if hasattr(updated, "isoformat") else None,
+                actions_enabled=alarm.get("ActionsEnabled"),
+                likely_autoscaling=autoscaling,
+            )
+        )
+
+    return ActiveAlarmsReport(
+        region=region,
+        total_account_alarms_in_alarm=len(raw),
+        euc_alarms_in_alarm=len(alarms),
+        alarms=alarms,
+        errors=errors,
+        notes=[
+            "Scoped to metric alarms on the EUC namespaces (AWS/WorkSpaces, AWS/AppStream, "
+            "AWS/WorkSpacesWeb); composite alarms are not evaluated.",
+            "total_account_alarms_in_alarm counts every alarm currently firing in the account, "
+            "for context.",
+            "Alarms flagged likely_autoscaling are auto-scaling policy alarms — scale-in alarms "
+            "normally sit in ALARM while a fleet/pool is idle and are expected, not incidents.",
+        ],
+    )
+
+
+# --------------------------------------------------------------------------------------
 # Registration
 # --------------------------------------------------------------------------------------
 
@@ -734,7 +817,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     """Register diagnostics tools on the FastMCP app."""
 
     async def diagnose_workspace_connectivity(
-        workspace_id: str, region: str | None = None, lookback_hours: int = 24
+        workspace_id: str, region: str | None = None, lookback_hours: LookbackHours = 24
     ) -> dict[str, Any]:
         """Diagnose why a WorkSpaces Personal desktop may be unreachable.
 
@@ -753,7 +836,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return diag.model_dump()
 
     async def diagnose_application_fleet(
-        fleet_name: str, region: str | None = None, lookback_hours: int = 24
+        fleet_name: str, region: str | None = None, lookback_hours: LookbackHours = 24
     ) -> dict[str, Any]:
         """Diagnose a WorkSpaces Applications (formerly AppStream 2.0) fleet's health and capacity.
 
@@ -788,7 +871,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def diagnose_pool(
-        pool_id: str, region: str | None = None, lookback_hours: int = 24
+        pool_id: str, region: str | None = None, lookback_hours: LookbackHours = 24
     ) -> dict[str, Any]:
         """Diagnose a WorkSpaces Pool's health and session capacity.
 
@@ -803,6 +886,22 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         diag = diagnose_pool_core(factory, pool_id, region or factory.region, lookback_hours)
         return diag.model_dump()
 
+    async def get_euc_active_alarms(region: str | None = None) -> dict[str, Any]:
+        """List CloudWatch alarms currently firing (ALARM state) on EUC resources.
+
+        Surfaces your own configured monitoring: any metric alarm in ALARM whose metric lives in
+        an EUC namespace (AWS/WorkSpaces, AWS/AppStream for WorkSpaces Applications,
+        AWS/WorkSpacesWeb for Secure Browser), with the metric, dimensions, reason, and when it
+        entered ALARM. Use for "is anything wrong right now?" checks. Read-only.
+
+        Args:
+            region: AWS region. Defaults to the server's configured region.
+        """
+        report = await asyncio.to_thread(
+            get_euc_active_alarms_core, factory, region or factory.region
+        )
+        return report.model_dump()
+
     mcp.add_tool(
         diagnose_workspace_connectivity,
         annotations=read_only("Diagnose WorkSpace connectivity"),
@@ -810,3 +909,4 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     mcp.add_tool(diagnose_application_fleet, annotations=read_only("Diagnose Applications fleet"))
     mcp.add_tool(check_directory_health, annotations=read_only("Check directory health"))
     mcp.add_tool(diagnose_pool, annotations=read_only("Diagnose WorkSpaces Pool"))
+    mcp.add_tool(get_euc_active_alarms, annotations=read_only("EUC active alarms"))
