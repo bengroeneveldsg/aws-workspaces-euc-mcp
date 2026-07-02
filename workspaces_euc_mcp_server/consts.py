@@ -224,4 +224,12 @@ CRITICAL — power state vs user connections are DIFFERENT signals; do not confl
 - analyze_workspace_utilization classifications (unused/idle/active) reflect USER CONNECTIONS over
   a lookback window, NOT power state. A desktop can be AVAILABLE yet "unused". Never report a
   desktop as stopped/not running based on utilization or connection data.
+
+LARGE ESTATES (hundreds/thousands of resources): start with get_euc_inventory_summary (counts
+only), not the full per-resource report. generate_inventory_report caps each section at
+max_resources_per_service (default 100) and marks truncated sections — when a section is
+truncated, or the user wants a spreadsheet/full list, use export_inventory_report_csv (writes the
+COMPLETE inventory to a local CSV and returns the path) instead of paging through inline results.
+Narrow with the services filter when only one service matters. For recurring estate overviews use
+generate_euc_health_report (one call, size-guarded sections, ready-to-send markdown).
 """

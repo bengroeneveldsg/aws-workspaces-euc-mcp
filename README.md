@@ -40,7 +40,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 ## Status
 
-**Shipped** (published to PyPI + GHCR) — **27 read-only tools** (Tiers 0–1) plus opt-in **10 write**
+**Shipped** (published to PyPI + GHCR) — **29 tools** (28 read-only, Tiers 0–1, plus a local CSV export) plus opt-in **10 write**
 (Tier 2) and **3 destructive** (Tier 3) tools. Cross-service tools collect from all EUC services
 **concurrently**, and tool parameters are bounds-validated at the MCP layer. The read-only
 inventory, troubleshooting, cost, audit, and governance tools:
@@ -60,7 +60,9 @@ inventory, troubleshooting, cost, audit, and governance tools:
 | `get_pool_session_history` | A WorkSpaces Pool's **live sessions right now** (who is connected) plus user-session capacity **history**; flags idle pool capacity (Tier 0). |
 | `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
 | `get_euc_cost_summary` | EUC spend by service over a window (or an explicit `start_date`/`end_date` calendar month) via Cost Explorer, account-wide. Services are matched by keyword so naming variants (e.g. AppStream 2.0) aren't dropped. Cost Explorer bills WorkSpaces Personal/Pools/Core as one "Amazon WorkSpaces" line, so the tool **splits it into Personal / Pools / Core via USAGE_TYPE** (`workspaces_breakdown`); also returns a daily/monthly time series (`by_period`) for charts (Tier 1). |
-| `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP / bundle name**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes; optional `include_tags` adds resource tags for ownership/cost-allocation (Tier 0). |
+| `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP / bundle name**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes; optional `include_tags` adds resource tags. **Large-estate aware**: each section is capped (`max_resources_per_service`, default 100) with `total_count`/`truncated` markers, and a `services` filter narrows scope (Tier 0). |
+| `export_inventory_report_csv` | **Full inventory to a local CSV** (no cap) for large estates / Excel — returns the file path and row count; reads AWS only, writes nothing anywhere but the local file (Tier 0). |
+| `generate_euc_health_report` | **One-call estate health report** — inventory, firing alarms, 30-day cost + forecast + AutoStop savings, security posture, image/builder findings, and quota headroom collected concurrently, returned as structured sections **plus ready-to-send markdown** — ideal for scheduled/weekly reports (Tier 1 for the cost sections). |
 | `audit_security_posture` | Cross-service: flags unencrypted WorkSpace volumes, directories without IP access control groups, **0.0.0.0/0 rules inside IP groups**, Secure Browser portals **without IP restrictions or session logging**, portals/stacks that allow **data egress**, and Applications usage reporting disabled (Tier 0). |
 | `audit_application_images` | Audits WorkSpaces Applications (AppStream 2.0) **images, image builders, and app-block builders** — stale base images, pinned/old agents, errored/SHARED images, and **builders left RUNNING** (billing hourly) (Tier 0). |
 | `audit_workspace_images` | Audits **WorkSpaces Personal custom images** — ERROR states, aging images worth refreshing, and **cross-account sharing** (which accounts each image is shared with) (Tier 0). |
@@ -71,7 +73,7 @@ inventory, troubleshooting, cost, audit, and governance tools:
 | `get_euc_audit_trail` | **"Who changed what"** — recent EUC management events from CloudTrail (last 90 days, no trail required) across all services; mutations-only by default, flags destructive actions and errors (e.g. AccessDenied) (Tier 0). |
 | `get_euc_service_quotas` | **Service-quota limits + usage headroom** per EUC service; pairs limits with current usage (where AWS publishes a usage metric) to flag quotas approaching their limit — capacity planning (Tier 0). |
 | `get_euc_account_posture` | Account-level WorkSpaces configuration — **dedicated tenancy (BYOL)** status + management CIDR, recent account modifications, per-directory **client properties**, and **cross-region connection aliases** (Tier 0). |
-| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download + timeouts), network, the **Chrome browser policy** (policy names + URL allow/block lists), **IP access ranges**, **identity providers**, **session-logging status**, and the **data-protection redaction config** (Tier 0). |
+| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download + timeouts), network, the **Chrome browser policy with per-policy values** (size-guarded; incl. URL allow/block lists, proxy, force-installed extensions), **IP access ranges**, **identity providers**, **session-logging status**, and the **data-protection redaction config** (Tier 0). |
 | `get_secure_browser_portal_usage` | A Secure Browser portal's **current active sessions** (live, via `ListSessions` — same as the console) plus **historic** `AWS/WorkSpacesWeb` metrics over a window (CloudWatch is historic-only; idle portals publish none) (Tier 0). |
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 

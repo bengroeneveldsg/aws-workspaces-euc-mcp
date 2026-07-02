@@ -11,12 +11,18 @@ Per-service collection runs concurrently (``gather_concurrently``); results merg
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+import csv
+import json
+import pathlib
+import tempfile
+from datetime import UTC, datetime
+from typing import Any, Literal
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import (
     AuditReport,
+    CsvExportResult,
     Finding,
     InventoryReport,
     InventoryReportSection,
@@ -26,7 +32,15 @@ from ..models import (
     UnusedResourcesReport,
 )
 from . import cost
-from ._common import LookbackDays, gather_concurrently, paginate, read_only, try_call
+from ._common import (
+    LookbackDays,
+    MaxResources,
+    gather_concurrently,
+    paginate,
+    read_only,
+    try_call,
+    writes,
+)
 
 
 def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> ResourceRecord:
@@ -47,7 +61,11 @@ def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> Reso
 
 
 def generate_inventory_report_core(
-    factory: ClientFactory, region: str | None, include_tags: bool = False
+    factory: ClientFactory,
+    region: str | None,
+    include_tags: bool = False,
+    services: str = "all",
+    max_resources_per_service: int = 100,
 ) -> InventoryReport:
     """Detailed per-resource inventory; the six per-service sections collect concurrently."""
     # Clients are created up front on this thread; only their (thread-safe) methods run in jobs.
@@ -340,18 +358,95 @@ def generate_inventory_report_core(
         )
         return section, errors
 
-    results = gather_concurrently(
-        _personal_section,
-        _pools_section,
-        _fleets_section,
-        _stacks_section,
-        _portals_section,
-        _instances_section,
-    )
-    sections = [section for section, _ in results]
+    jobs_by_service = {
+        "personal": [_personal_section],
+        "pools": [_pools_section],
+        "applications": [_fleets_section, _stacks_section],
+        "secure-browser": [_portals_section],
+        "core": [_instances_section],
+    }
+    if services == "all":
+        jobs = [job for group in jobs_by_service.values() for job in group]
+    else:
+        jobs = jobs_by_service.get(services, [])
+
+    results = gather_concurrently(*jobs)
+    sections = []
+    truncated_any = False
+    for section, _ in results:
+        section.total_count = len(section.resources)
+        if section.total_count > max_resources_per_service:
+            section.resources = section.resources[:max_resources_per_service]
+            section.truncated = True
+            truncated_any = True
+        sections.append(section)
     errors = [error for _, job_errors in results for error in job_errors]
-    total = sum(len(s.resources) for s in sections)
-    return InventoryReport(region=region, total_resources=total, sections=sections, errors=errors)
+    total = sum(s.total_count for s in sections)
+    notes: list[str] = []
+    if truncated_any:
+        notes.append(
+            f"One or more sections were capped at {max_resources_per_service} resources "
+            "(see total_count/truncated per section). For the FULL list on large estates, use "
+            "export_inventory_report_csv (writes a local CSV you can open in Excel), or narrow "
+            "with the services filter / raise max_resources_per_service."
+        )
+    return InventoryReport(
+        region=region, total_resources=total, sections=sections, errors=errors, notes=notes
+    )
+
+
+def export_inventory_report_csv_core(
+    factory: ClientFactory,
+    region: str | None,
+    path: str | None = None,
+    include_tags: bool = False,
+) -> CsvExportResult:
+    """Write the FULL per-resource inventory to a local CSV (no cap; for large estates)."""
+    report = generate_inventory_report_core(
+        factory, region, include_tags=include_tags, max_resources_per_service=1_000_000
+    )
+
+    # Flatten every resource to a row; columns = core fields + union of attribute keys.
+    rows: list[dict[str, Any]] = []
+    for section in report.sections:
+        for r in section.resources:
+            row: dict[str, Any] = {
+                "service": section.service,
+                "resource_type": section.resource_type,
+                "id": r.id,
+                "name": r.name,
+                "state": r.state,
+            }
+            for k, v in (r.attributes or {}).items():
+                row[k] = json.dumps(v, default=str) if isinstance(v, (dict, list)) else v
+            rows.append(row)
+
+    core_cols = ["service", "resource_type", "id", "name", "state"]
+    attr_cols = sorted({k for row in rows for k in row} - set(core_cols))
+    fieldnames = core_cols + attr_cols
+
+    if path:
+        out_path = pathlib.Path(path).expanduser()
+    else:
+        stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
+        out_path = pathlib.Path(tempfile.gettempdir()) / f"euc-inventory-{region}-{stamp}.csv"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with out_path.open("w", newline="", encoding="utf-8-sig") as fh:
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+    return CsvExportResult(
+        path=str(out_path),
+        rows=len(rows),
+        columns=len(fieldnames),
+        total_resources=report.total_resources,
+        errors=report.errors,
+        notes=[
+            "The CSV contains the FULL inventory (no cap) and lives only on this machine; nothing "
+            "was uploaded. Open it in Excel or point analysis tooling at it.",
+        ],
+    )
 
 
 def audit_security_posture_core(factory: ClientFactory, region: str | None) -> AuditReport:
@@ -682,7 +777,12 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     """Register reporting & audit tools on the FastMCP app."""
 
     async def generate_inventory_report(
-        region: str | None = None, include_tags: bool = False
+        region: str | None = None,
+        include_tags: bool = False,
+        services: Literal[
+            "all", "personal", "pools", "applications", "secure-browser", "core"
+        ] = "all",
+        max_resources_per_service: MaxResources = 100,
     ) -> dict[str, Any]:
         """Produce a detailed per-resource inventory across the EUC portfolio.
 
@@ -696,9 +796,17 @@ def register(mcp: Any, factory: ClientFactory) -> None:
             region: AWS region. Defaults to the server's configured region.
             include_tags: Also fetch resource tags (ownership/cost-allocation) — one extra API
                 call per resource, so slower on large estates (default False).
+            services: Limit to one service group, or "all".
+            max_resources_per_service: Cap per section (default 100). Sections report total_count
+                and truncated; for the FULL list on large estates use export_inventory_report_csv.
         """
         report = await asyncio.to_thread(
-            generate_inventory_report_core, factory, region or factory.region, include_tags
+            generate_inventory_report_core,
+            factory,
+            region or factory.region,
+            include_tags,
+            services,
+            max_resources_per_service,
         )
         return report.model_dump()
 
@@ -733,6 +841,34 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return report.model_dump()
 
+    async def export_inventory_report_csv(
+        region: str | None = None,
+        path: str | None = None,
+        include_tags: bool = False,
+    ) -> dict[str, Any]:
+        """Export the FULL EUC inventory to a local CSV file (for large estates / Excel).
+
+        Writes every resource (no cap — unlike generate_inventory_report's default) to a CSV on
+        THIS machine and returns the file path and row count. Use when the estate has hundreds or
+        thousands of resources, when the user asks for a spreadsheet/export, or when a full list
+        would be too large to return inline. Reads AWS only; the sole write is the local CSV file
+        (nothing is uploaded anywhere).
+
+        Args:
+            region: AWS region. Defaults to the server's configured region.
+            path: Where to write the CSV. Defaults to a timestamped file in the system temp
+                directory; the actual path is returned.
+            include_tags: Also fetch resource tags per resource (slower).
+        """
+        result = await asyncio.to_thread(
+            export_inventory_report_csv_core, factory, region or factory.region, path, include_tags
+        )
+        return result.model_dump()
+
     mcp.add_tool(generate_inventory_report, annotations=read_only("Inventory report"))
+    mcp.add_tool(
+        export_inventory_report_csv,
+        annotations=writes("Export inventory CSV (local file)", idempotent=True),
+    )
     mcp.add_tool(audit_security_posture, annotations=read_only("Security posture audit"))
     mcp.add_tool(list_unused_resources, annotations=read_only("List unused resources"))

@@ -4,7 +4,7 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 27 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 29 tools — 28 read-only (Tier 0/1) plus a local CSV export + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
 > guards. Read-only coverage includes image auditing, governance (CloudTrail audit trail + Service
 > Quotas headroom), cost forecast/period comparison, and active CloudWatch alarms. Cross-service
@@ -79,6 +79,7 @@
       pricing.py       # AWS Price List lookups for $ estimates
       images.py        # Applications + Personal image / builder audits
       access.py        # WorkSpaces Applications access review (users/stack assignments)
+      health.py        # one-call orchestrated estate health report (markdown-ready)
       governance.py    # CloudTrail audit trail + Service Quotas headroom
       lifecycle.py     # Tier 2 (guarded writes)
       destructive.py   # Tier 3 (terminate/rebuild/restore)
@@ -119,7 +120,9 @@ and return a synthesized result, not raw API passthroughs.
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `get_euc_inventory_summary` | Cross-service rollup (counts, states, regions) across Personal, Pools, Applications, Secure Browser, Core | union of the in-scope describes |
-| `generate_inventory_report` | Structured per-resource inventory across all in-scope services | Phase-1 describes |
+| `generate_inventory_report` | Structured per-resource inventory across all in-scope services; large-estate caps + service filter + include_tags | Phase-1 describes |
+| `export_inventory_report_csv` | Full uncapped inventory to a local CSV (large estates / Excel) | Phase-1 describes |
+| `generate_euc_health_report` | One-call orchestrated health report (inventory/alarms/cost/security/images/quotas) with markdown output | union of the read-only tools |
 
 **Troubleshooting & triage** (the flagship value)
 | Tool | Purpose | IAM actions |

@@ -169,8 +169,24 @@ def get_secure_browser_portal_details_core(
     )
 
 
+_POLICY_MAX_LIST_ITEMS = 20
+_POLICY_MAX_STR_LEN = 300
+
+
+def _guard_policy_value(value: Any) -> Any:
+    """Size-guard a policy value so huge lists/strings can't bloat the tool payload."""
+    if isinstance(value, list):
+        if len(value) > _POLICY_MAX_LIST_ITEMS:
+            extra = len(value) - _POLICY_MAX_LIST_ITEMS
+            return [*value[:_POLICY_MAX_LIST_ITEMS], f"... (+{extra} more)"]
+        return value
+    if isinstance(value, str) and len(value) > _POLICY_MAX_STR_LEN:
+        return value[:_POLICY_MAX_STR_LEN] + f"... (+{len(value) - _POLICY_MAX_STR_LEN} chars)"
+    return value
+
+
 def _summarize_browser_policy(policy_json: Any) -> dict[str, Any]:
-    """Reduce a Chrome browser-policy JSON string to the admin-relevant summary."""
+    """Reduce a Chrome browser-policy JSON string to an admin-relevant summary WITH values."""
     if not policy_json:
         return {}
     try:
@@ -183,11 +199,16 @@ def _summarize_browser_policy(policy_json: Any) -> dict[str, Any]:
         entry = chrome.get(name)
         return entry.get("value") if isinstance(entry, dict) else None
 
+    policies = {
+        name: _guard_policy_value(entry.get("value") if isinstance(entry, dict) else entry)
+        for name, entry in sorted(chrome.items())
+    }
     return {
         "policy_count": len(chrome),
         "policy_names": sorted(chrome),
-        "url_allowlist": _value("URLAllowlist") or _value("URLWhitelist"),
-        "url_blocklist": _value("URLBlocklist") or _value("URLBlacklist"),
+        "policies": policies,
+        "url_allowlist": _guard_policy_value(_value("URLAllowlist") or _value("URLWhitelist")),
+        "url_blocklist": _guard_policy_value(_value("URLBlocklist") or _value("URLBlacklist")),
     }
 
 
