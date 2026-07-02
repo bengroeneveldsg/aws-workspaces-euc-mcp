@@ -166,6 +166,100 @@ class SecureBrowserPortalDetails(BaseModel):
     errors: list[ServiceError] = Field(default_factory=list)
 
 
+class ForecastPeriod(BaseModel):
+    """One forecast bucket with its prediction interval."""
+
+    start: str
+    end: str
+    mean: float
+    lower: float | None = None
+    upper: float | None = None
+
+
+class CostForecast(BaseModel):
+    """Cost Explorer forecast for the EUC portfolio (account-wide)."""
+
+    scope: str = Field(default="account-wide")
+    start: str
+    end: str
+    granularity: str
+    currency: str = "USD"
+    forecast_total: float | None = Field(
+        default=None, description="Mean forecast total for the window; null if unavailable."
+    )
+    by_period: list[ForecastPeriod] = Field(default_factory=list)
+    filtered_services: list[str] = Field(
+        default_factory=list,
+        description="Exact Cost Explorer SERVICE names the forecast was filtered to.",
+    )
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class CostDriver(BaseModel):
+    """A usage-type-level contributor to the cost change between two periods."""
+
+    usage_type: str
+    category: str = Field(description="Human bucket, e.g. WorkSpaces Personal / Pools / Core.")
+    baseline: float
+    comparison: float
+    delta: float
+
+
+class CostComparison(BaseModel):
+    """Two-window EUC cost comparison with per-service deltas and usage-type drivers."""
+
+    scope: str = Field(default="account-wide")
+    baseline_start: str
+    baseline_end: str
+    comparison_start: str
+    comparison_end: str
+    currency: str = "USD"
+    baseline_total: float = 0.0
+    comparison_total: float = 0.0
+    delta: float = 0.0
+    delta_pct: float | None = None
+    by_service_delta: dict[str, dict[str, float]] = Field(
+        default_factory=dict,
+        description="Per service: {baseline, comparison, delta}.",
+    )
+    top_drivers: list[CostDriver] = Field(
+        default_factory=list,
+        description="Largest usage-type-level changes, ranked by absolute delta.",
+    )
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class ActiveAlarm(BaseModel):
+    """A CloudWatch alarm currently in ALARM whose metric belongs to an EUC namespace."""
+
+    name: str
+    service: str = Field(description="EUC product the alarm's namespace maps to.")
+    namespace: str | None = None
+    metric_name: str | None = None
+    dimensions: dict[str, str] = Field(default_factory=dict)
+    state_reason: str | None = None
+    state_since: str | None = None
+    actions_enabled: bool | None = None
+    likely_autoscaling: bool = Field(
+        default=False,
+        description="True when the name matches an auto-scaling policy alarm; scale-in alarms "
+        "normally sit in ALARM while capacity is idle and are not incidents.",
+    )
+
+
+class ActiveAlarmsReport(BaseModel):
+    """Currently-firing CloudWatch alarms scoped to the EUC portfolio."""
+
+    region: str | None = None
+    total_account_alarms_in_alarm: int = 0
+    euc_alarms_in_alarm: int = 0
+    alarms: list[ActiveAlarm] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
 class SecureBrowserSession(BaseModel):
     """A single Secure Browser portal session (from ListSessions)."""
 

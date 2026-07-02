@@ -182,6 +182,13 @@ WORKSPACES_POOL_SESSION_METRICS = [
 # nothing), and richer usage goes via the Session Logger. Names below are per AWS docs and are
 # NOT yet verified against live data (the account's portals have had no sessions).
 SECURE_BROWSER_NAMESPACE = "AWS/WorkSpacesWeb"
+
+# All CloudWatch namespaces the EUC portfolio publishes to — used to scope alarm queries.
+EUC_CLOUDWATCH_NAMESPACES = {
+    "AWS/WorkSpaces": "Amazon WorkSpaces",
+    "AWS/AppStream": PRODUCT_WORKSPACES_APPLICATIONS,
+    "AWS/WorkSpacesWeb": PRODUCT_SECURE_BROWSER,
+}
 SECURE_BROWSER_PORTAL_DIMENSION = "PortalId"
 SECURE_BROWSER_SESSION_METRICS = [
     ("SessionAttempt", "Count"),

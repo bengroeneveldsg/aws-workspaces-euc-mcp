@@ -28,7 +28,7 @@ from ..models import (
     ServiceError,
     ServiceQuotaReport,
 )
-from ._common import paginate, read_only, try_call
+from ._common import LookbackDays, MaxEvents, Percentage, paginate, read_only, try_call
 
 _CLOUDTRAIL_MAX_LOOKBACK = 90  # LookupEvents only retains 90 days.
 
@@ -93,10 +93,10 @@ def _audit_findings(events: list[AuditEvent]) -> list[GovernanceFinding]:
 def get_euc_audit_trail_core(
     factory: ClientFactory,
     region: str | None,
-    lookback_days: int = 7,
+    lookback_days: LookbackDays = 7,
     service: str = "all",
     include_read_only: bool = False,
-    max_events: int = 100,
+    max_events: MaxEvents = 100,
 ) -> AuditTrailReport:
     errors: list[ServiceError] = []
     lookback_days = max(1, min(lookback_days, _CLOUDTRAIL_MAX_LOOKBACK))
@@ -225,7 +225,7 @@ def get_euc_service_quotas_core(
     factory: ClientFactory,
     region: str | None,
     service: str = "all",
-    approaching_pct: float = 80.0,
+    approaching_pct: Percentage = 80.0,
     include_zero_limit: bool = False,
 ) -> ServiceQuotaReport:
     errors: list[ServiceError] = []
@@ -309,10 +309,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
 
     async def get_euc_audit_trail(
         region: str | None = None,
-        lookback_days: int = 7,
+        lookback_days: LookbackDays = 7,
         service: Literal["all", "workspaces", "applications", "secure-browser", "core"] = "all",
         include_read_only: bool = False,
-        max_events: int = 100,
+        max_events: MaxEvents = 100,
     ) -> dict[str, Any]:
         """Audit recent EUC management activity from CloudTrail — "who changed what".
 
@@ -336,7 +336,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_euc_service_quotas(
         region: str | None = None,
         service: Literal["all", "workspaces", "applications", "secure-browser", "core"] = "all",
-        approaching_pct: float = 80.0,
+        approaching_pct: Percentage = 80.0,
         include_zero_limit: bool = False,
     ) -> dict[str, Any]:
         """Report EUC Service Quotas limits and usage headroom (capacity planning).

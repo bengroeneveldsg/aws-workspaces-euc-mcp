@@ -355,3 +355,158 @@ def test_cost_summary_records_errors_gracefully():
     assert summary.total == 0.0
     assert len(summary.errors) == 1
     assert summary.errors[0].operation == "GetCostAndUsage"
+
+
+def test_cost_forecast_filters_to_discovered_euc_services():
+    captured: dict = {}
+
+    def get_cost_and_usage(**kwargs):
+        # Discovery call: SERVICE grouping over recent actuals, incl. a non-EUC service.
+        return {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon WorkSpaces"],
+                            "Metrics": {"UnblendedCost": {"Amount": "500", "Unit": "USD"}},
+                        },
+                        {
+                            "Keys": ["Amazon Elastic Compute Cloud - Compute"],
+                            "Metrics": {"UnblendedCost": {"Amount": "999", "Unit": "USD"}},
+                        },
+                    ]
+                }
+            ]
+        }
+
+    def get_cost_forecast(**kwargs):
+        captured.update(kwargs)
+        return {
+            "Total": {"Amount": "1234.564", "Unit": "USD"},
+            "ForecastResultsByTime": [
+                {
+                    "TimePeriod": {"Start": "2026-07-04", "End": "2026-08-03"},
+                    "MeanValue": "1234.564",
+                    "PredictionIntervalLowerBound": "1000.0",
+                    "PredictionIntervalUpperBound": "1500.0",
+                }
+            ],
+        }
+
+    ce = types.SimpleNamespace(
+        get_cost_and_usage=get_cost_and_usage, get_cost_forecast=get_cost_forecast
+    )
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    forecast = cost.get_euc_cost_forecast_core(factory, days_ahead=30)
+
+    # Non-EUC services must NOT leak into the forecast filter.
+    assert captured["Filter"]["Dimensions"]["Values"] == ["Amazon WorkSpaces"]
+    assert forecast.forecast_total == 1234.56
+    assert forecast.by_period[0].lower == 1000.0
+    assert forecast.by_period[0].upper == 1500.0
+    assert forecast.filtered_services == ["Amazon WorkSpaces"]
+
+
+def test_cost_forecast_without_history_returns_note_not_error():
+    ce = types.SimpleNamespace(get_cost_and_usage=lambda **_: {"ResultsByTime": []})
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    forecast = cost.get_euc_cost_forecast_core(factory)
+
+    assert forecast.forecast_total is None
+    assert any("no history" in n.lower() or "No EUC spend" in n for n in forecast.notes)
+
+
+def test_compare_euc_costs_deltas_and_ranked_drivers():
+    baseline_start = "2026-05-01"
+
+    def get_cost_and_usage(**kwargs):
+        window = kwargs["TimePeriod"]["Start"]
+        two_dims = len(kwargs.get("GroupBy", [])) == 2
+        if not two_dims:  # SERVICE totals per window
+            if window == baseline_start:
+                groups = [("Amazon WorkSpaces", "500.00")]
+            else:
+                groups = [
+                    ("Amazon WorkSpaces", "700.00"),
+                    ("Amazon WorkSpaces Applications", "100.00"),
+                ]
+            return {
+                "ResultsByTime": [
+                    {
+                        "Groups": [
+                            {
+                                "Keys": [k],
+                                "Metrics": {"UnblendedCost": {"Amount": v, "Unit": "USD"}},
+                            }
+                            for k, v in groups
+                        ]
+                    }
+                ]
+            }
+        # SERVICE + USAGE_TYPE drivers per window
+        if window == baseline_start:
+            rows = [
+                ("Amazon WorkSpaces", "APS1-AW-HWB5-0", "400.00"),
+                ("Amazon WorkSpaces", "APS1-AW-HW-Pools-Stopped-Usage", "100.00"),
+            ]
+        else:
+            rows = [
+                ("Amazon WorkSpaces", "APS1-AW-HWB5-0", "450.00"),
+                ("Amazon WorkSpaces", "APS1-AW-HW-Pools-Stopped-Usage", "250.00"),
+                ("Amazon WorkSpaces Applications", "APS1-AppStreamHours", "100.00"),
+            ]
+        return {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": [svc, ut],
+                            "Metrics": {"UnblendedCost": {"Amount": amt, "Unit": "USD"}},
+                        }
+                        for svc, ut, amt in rows
+                    ]
+                }
+            ]
+        }
+
+    ce = types.SimpleNamespace(get_cost_and_usage=get_cost_and_usage)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    cmp = cost.compare_euc_costs_core(
+        factory,
+        start_date="2026-06-01",
+        end_date="2026-07-01",
+        baseline_start="2026-05-01",
+        baseline_end="2026-06-01",
+    )
+
+    assert cmp.baseline_total == 500.0
+    assert cmp.comparison_total == 800.0
+    assert cmp.delta == 300.0
+    assert cmp.delta_pct == 60.0
+    assert cmp.by_service_delta["Amazon WorkSpaces"]["delta"] == 200.0
+    assert cmp.by_service_delta["Amazon WorkSpaces Applications"]["delta"] == 100.0
+    # Drivers ranked by |delta|: Pools +150, Applications +100, Personal +50.
+    deltas = [(d.category, d.delta) for d in cmp.top_drivers]
+    assert deltas[0] == ("WorkSpaces Pools", 150.0)
+    assert deltas[1] == ("Amazon WorkSpaces Applications", 100.0)
+    assert deltas[2] == ("WorkSpaces Personal", 50.0)
+
+
+def test_compare_euc_costs_default_baseline_is_preceding_window():
+    calls: list[str] = []
+
+    def get_cost_and_usage(**kwargs):
+        calls.append(kwargs["TimePeriod"]["Start"])
+        return {"ResultsByTime": []}
+
+    ce = types.SimpleNamespace(get_cost_and_usage=get_cost_and_usage)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    cmp = cost.compare_euc_costs_core(factory, start_date="2026-06-01", end_date="2026-07-01")
+
+    assert cmp.baseline_start == "2026-05-02"  # preceding 30-day window
+    assert cmp.baseline_end == "2026-06-01"
+    assert cmp.comparison_start == "2026-06-01"

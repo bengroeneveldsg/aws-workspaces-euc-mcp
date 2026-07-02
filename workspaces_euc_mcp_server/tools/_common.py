@@ -6,14 +6,40 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any
+from concurrent.futures import ThreadPoolExecutor
+from typing import Annotated, Any
 
 from botocore.exceptions import BotoCoreError, ClientError
 from loguru import logger
 from mcp.types import ToolAnnotations
+from pydantic import Field
 
 from ..models import ServiceError
 from ..sso import SsoAutoLogin, looks_like_sso_token_error
+
+# Constrained parameter types for tool signatures (awslabs DESIGN_GUIDELINES: use Field
+# constraints on parameters). Bounds mirror what the underlying AWS APIs can usefully serve;
+# validation happens at the MCP layer, so bad inputs fail fast with a clear message instead of
+# triggering slow or oversized AWS queries. Descriptions stay in the tool docstrings (single
+# source of truth); Field carries only the constraints.
+LookbackDays = Annotated[int, Field(ge=1, le=90)]
+"""Metric lookback window in days (CloudWatch-backed tools)."""
+CostLookbackDays = Annotated[int, Field(ge=1, le=365)]
+"""Cost Explorer lookback window in days (longer history than CloudWatch)."""
+LookbackHours = Annotated[int, Field(ge=1, le=168)]
+"""Diagnostic lookback window in hours (up to 7 days)."""
+PeriodHours = Annotated[int, Field(ge=1, le=168)]
+"""Metric bucket size in hours (up to 7 days)."""
+MaxEvents = Annotated[int, Field(ge=1, le=500)]
+"""Result cap for event listings."""
+Percentage = Annotated[float, Field(ge=1, le=100)]
+"""A percentage threshold."""
+ForecastDays = Annotated[int, Field(ge=1, le=365)]
+"""How far ahead to forecast, in days (Cost Explorer supports up to ~12 months)."""
+CapacityCount = Annotated[int, Field(ge=0, le=10_000)]
+"""A desired-capacity value (0 = scale to zero)."""
+DateString = Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]
+"""An ISO date, YYYY-MM-DD."""
 
 # Optional process-wide SSO auto-login handler, installed by the server when --sso-auto-login is on.
 _SSO_HANDLER: SsoAutoLogin | None = None
@@ -107,6 +133,22 @@ def paginate(
         marker = response.get(pagination_out)
         if not marker:
             return items
+
+
+def gather_concurrently(*jobs: Callable[[], Any]) -> list[Any]:
+    """Run independent collection jobs concurrently, results in argument order.
+
+    Cross-service tools fan out over several EUC services; running the per-service collectors on
+    a small thread pool (boto3 client *calls* are thread-safe; creation is serialized by the
+    ClientFactory lock) cuts wall-clock time to roughly the slowest single service, per the AWS
+    MCP design guideline to run independent operations concurrently. Exceptions propagate exactly
+    as they would sequentially.
+    """
+    if len(jobs) <= 1:
+        return [job() for job in jobs]
+    with ThreadPoolExecutor(max_workers=len(jobs)) as pool:
+        futures = [pool.submit(job) for job in jobs]
+        return [future.result() for future in futures]
 
 
 def count_by(items: list[dict[str, Any]], state_key: str) -> dict[str, int]:

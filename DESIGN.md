@@ -4,10 +4,12 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 21 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 24 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
-> guards. Read-only coverage now includes image auditing and governance (CloudTrail audit trail +
-> Service Quotas headroom). All four IAM policy tiers ship in `iam/`. CI
+> guards. Read-only coverage includes image auditing, governance (CloudTrail audit trail + Service
+> Quotas headroom), cost forecast/period comparison, and active CloudWatch alarms. Cross-service
+> tools fan out concurrently and parameters are bounds-validated (pydantic `Field`), per the
+> awslabs design guidelines. All four IAM policy tiers ship in `iam/`. CI
 > (ruff/format/pyright/bandit/pytest on Py 3.11–3.13) is green; published to PyPI and GHCR.
 > **`README.md` is the source of truth for the live tool catalog and exact tool names** — §5 below
 > records the original design intent and is kept reconciled with what shipped. See `CHANGELOG.md`
@@ -125,6 +127,7 @@ and return a synthesized result, not raw API passthroughs.
 | `diagnose_pool` | Why a Pool is unhealthy/queued — capacity status, sessions, errors, scaling | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
 | `diagnose_application_fleet` | Fleet state, capacity, scaling activity, fleet errors | `appstream:DescribeFleets`, `appstream:ListAssociatedStacks`, `cloudwatch:GetMetricData`, `application-autoscaling:DescribeScalingActivities` |
 | `check_directory_health` | Shared dependency: directory reachability/registration + registration properties (target OU, security group, flags); skips `ds` for WorkSpaces-managed `wsd-` directories | `ds:DescribeDirectories`, `workspaces:DescribeWorkspaceDirectories` |
+| `get_euc_active_alarms` | CloudWatch alarms currently firing on EUC namespaces; auto-scaling policy alarms flagged as expected | `cloudwatch:DescribeAlarms` |
 
 **Cost, utilization & performance**
 | Tool | Purpose | IAM actions |
@@ -137,6 +140,8 @@ and return a synthesized result, not raw API passthroughs.
 | `get_pool_session_history` | Pool session/capacity history | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
 | `get_application_fleet_usage` | Applications fleet utilization vs capacity | `appstream:DescribeFleets`, `cloudwatch:GetMetricData` |
 | `get_euc_cost_summary` | EUC spend by service + WorkSpaces Personal/Pools/Core split (USAGE_TYPE) + daily/monthly time series | `ce:GetCostAndUsage` |
+| `get_euc_cost_forecast` | Forecast upcoming EUC spend (80% prediction interval), filtered to discovered EUC services | `ce:GetCostForecast`, `ce:GetCostAndUsage` |
+| `compare_euc_costs` | Two-window comparison: totals, per-service deltas, usage-type drivers of the change | `ce:GetCostAndUsage` |
 
 **Secure Browser**
 | Tool | Purpose | IAM actions |
@@ -183,11 +188,11 @@ We ship a managed policy document per tier so customers grant exactly what they 
 - **Tier 0 — Diagnostics (read-only):** `workspaces:Describe*`, `appstream:Describe*` (incl.
   `DescribeImages`/`DescribeImageBuilders`), `workspaces-web:Get*`/`List*`,
   `workspaces-instances:List*`/`Get*`, `ds:DescribeDirectories`,
-  `cloudwatch:GetMetricData`/`ListMetrics`, `application-autoscaling:DescribeScalingActivities`,
-  `ec2:DescribeInstances`, `cloudtrail:LookupEvents`,
-  `servicequotas:ListServiceQuotas`/`GetServiceQuota`.
+  `cloudwatch:GetMetricData`/`ListMetrics`/`DescribeAlarms`,
+  `application-autoscaling:DescribeScalingActivities`, `ec2:DescribeInstances`,
+  `cloudtrail:LookupEvents`, `servicequotas:ListServiceQuotas`/`GetServiceQuota`.
 - **Tier 1 — Cost/optimization (read-only):** Tier 0 + `ce:GetCostAndUsage`,
-  `ce:GetDimensionValues`, `pricing:GetProducts`.
+  `ce:GetCostForecast`, `ce:GetDimensionValues`, `pricing:GetProducts`.
 - **Tier 2 — Lifecycle (writes):** Tier 1 + `workspaces:Start/Stop/Reboot/ModifyWorkspace*`,
   `workspaces:UpdateWorkspacesPool`, `appstream:Start/Stop/UpdateFleet`.
 - **Tier 3 — Destructive:** Tier 2 + `workspaces:Rebuild/Restore/TerminateWorkspaces`.

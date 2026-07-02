@@ -24,7 +24,7 @@ from ..models import (
     SecureBrowserSession,
     ServiceError,
 )
-from ._common import paginate, read_only, try_call
+from ._common import LookbackDays, PeriodHours, paginate, read_only, try_call
 from .performance import _fetch_metric_series
 
 
@@ -180,8 +180,8 @@ def get_secure_browser_portal_usage_core(
     factory: ClientFactory,
     portal: str,
     region: str | None,
-    lookback_days: int = 7,
-    period_hours: int = 24,
+    lookback_days: LookbackDays = 7,
+    period_hours: PeriodHours = 24,
 ) -> SecureBrowserPortalUsage:
     errors: list[ServiceError] = []
     portal_id = _portal_id(portal)
@@ -256,8 +256,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_secure_browser_portal_usage(
         portal: str,
         region: str | None = None,
-        lookback_days: int = 7,
-        period_hours: int = 24,
+        lookback_days: LookbackDays = 7,
+        period_hours: PeriodHours = 24,
     ) -> dict[str, Any]:
         """Get a Secure Browser portal's CURRENT active sessions plus historic session metrics.
 

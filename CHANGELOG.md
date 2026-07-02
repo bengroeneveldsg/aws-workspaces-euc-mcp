@@ -5,6 +5,33 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-07-03
+
+Alignment pass against the awslabs MCP catalog and DESIGN_GUIDELINES, plus features adapted from
+the AWS Billing/Cost-Management and CloudWatch MCP servers (EUC-scoped, not raw mirrors).
+
+### Added
+- `get_euc_cost_forecast` — forecast upcoming EUC spend via Cost Explorer's model (mean total +
+  per-period values with an 80% prediction interval), filtered to the EUC services discovered from
+  recent actual spend. Adds `ce:GetCostForecast` to Tiers 1–3.
+- `compare_euc_costs` — "why did my cost change?": compares two windows (baseline defaults to the
+  preceding equal-length window) and returns totals, per-service deltas, and the top
+  **usage-type-level drivers**, with WorkSpaces usage bucketed into Personal/Pools/Core.
+- `get_euc_active_alarms` — CloudWatch alarms currently in ALARM whose metrics live in EUC
+  namespaces (AWS/WorkSpaces, AWS/AppStream, AWS/WorkSpacesWeb), with auto-scaling policy alarms
+  flagged as expected (idle scale-in alarms are not incidents). Adds `cloudwatch:DescribeAlarms`
+  to every IAM tier.
+- `NOTICE` file (Apache-2.0 convention).
+
+### Changed
+- **Cross-service tools now collect concurrently** (inventory summary, inventory report, security
+  posture audit, unused resources): per-service collectors fan out on a thread pool, cutting
+  wall-clock time to roughly the slowest single service; heavy tools also moved off the MCP event
+  loop (`asyncio.to_thread`). The boto3 client factory is now thread-safe.
+- **Tool parameters are bounds-validated** with pydantic `Field` constraints (e.g. `lookback_days`
+  1–90, dates must be `YYYY-MM-DD`), so bad inputs fail fast with a clear message instead of
+  triggering slow or oversized AWS queries.
+
 ## [0.1.10] - 2026-06-03
 
 ### Added

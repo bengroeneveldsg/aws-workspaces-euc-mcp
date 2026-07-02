@@ -13,15 +13,20 @@ is connected during a period); no CloudWatch agent is required.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+import asyncio
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal
 
 from .. import consts
 from ..clients import ClientFactory
 from ..models import (
+    CostComparison,
+    CostDriver,
+    CostForecast,
     CostLineItem,
     CostPeriod,
     CostSummary,
+    ForecastPeriod,
     Recommendation,
     RecommendationReport,
     ServiceError,
@@ -29,7 +34,16 @@ from ..models import (
     WorkspaceUtilization,
 )
 from . import pricing
-from ._common import paginate, read_only, try_call
+from ._common import (
+    CostLookbackDays,
+    DateString,
+    ForecastDays,
+    LookbackDays,
+    gather_concurrently,
+    paginate,
+    read_only,
+    try_call,
+)
 
 
 def _daily_connected_values(cloudwatch: Any, workspace_id: str, lookback_days: int) -> list[float]:
@@ -112,7 +126,7 @@ def _collect_utilization(
 
 
 def analyze_workspace_utilization_core(
-    factory: ClientFactory, region: str | None, lookback_days: int = 14
+    factory: ClientFactory, region: str | None, lookback_days: LookbackDays = 14
 ) -> UtilizationReport:
     items, errors = _collect_utilization(factory, region, lookback_days)
     counts: dict[str, int] = {}
@@ -133,7 +147,7 @@ def analyze_workspace_utilization_core(
 
 
 def recommend_running_mode_core(
-    factory: ClientFactory, region: str | None, lookback_days: int = 14
+    factory: ClientFactory, region: str | None, lookback_days: LookbackDays = 14
 ) -> RecommendationReport:
     items, errors = _collect_utilization(factory, region, lookback_days)
     recommendations: list[Recommendation] = []
@@ -225,7 +239,7 @@ def _classify_workspaces_usage_type(usage_type: str) -> str:
     return consts.WORKSPACES_USAGE_TYPE_DEFAULT_CLASS
 
 
-def _fetch_workspaces_breakdown(
+def _fetch_usage_type_totals(
     cost_explorer: Any,
     start: str,
     end: str,
@@ -233,7 +247,7 @@ def _fetch_workspaces_breakdown(
     service_names: list[str],
     errors: list[ServiceError],
 ) -> dict[str, float]:
-    """Split the 'Amazon WorkSpaces' line into Personal/Pools/Core via a USAGE_TYPE query."""
+    """Raw USAGE_TYPE -> amount totals for the given (exact) SERVICE names over a window."""
     out: dict[str, float] = {}
     next_token: str | None = None
     while True:
@@ -241,7 +255,7 @@ def _fetch_workspaces_breakdown(
             "TimePeriod": {"Start": start, "End": end},
             "Granularity": granularity,
             "Metrics": ["UnblendedCost"],
-            # Exact names taken from the SERVICE results above — safe to filter on (no guessing).
+            # Exact names taken from prior SERVICE results — safe to filter on (no guessing).
             "Filter": {"Dimensions": {"Key": "SERVICE", "Values": service_names}},
             "GroupBy": [{"Type": "DIMENSION", "Key": "USAGE_TYPE"}],
         }
@@ -260,20 +274,73 @@ def _fetch_workspaces_breakdown(
             for group in period.get("Groups", []):
                 usage_type = (group.get("Keys") or [""])[0]
                 amount = float(group.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0.0))
-                label = _classify_workspaces_usage_type(usage_type)
-                out[label] = out.get(label, 0.0) + amount
+                out[usage_type] = out.get(usage_type, 0.0) + amount
         next_token = resp.get("NextPageToken")
         if not next_token:
             break
+    return out
+
+
+def _fetch_workspaces_breakdown(
+    cost_explorer: Any,
+    start: str,
+    end: str,
+    granularity: str,
+    service_names: list[str],
+    errors: list[ServiceError],
+) -> dict[str, float]:
+    """Split the 'Amazon WorkSpaces' line into Personal/Pools/Core via a USAGE_TYPE query."""
+    raw = _fetch_usage_type_totals(cost_explorer, start, end, granularity, service_names, errors)
+    out: dict[str, float] = {}
+    for usage_type, amount in raw.items():
+        label = _classify_workspaces_usage_type(usage_type)
+        out[label] = out.get(label, 0.0) + amount
     return {k: round(v, 2) for k, v in out.items() if round(v, 2) != 0.0}
+
+
+def _discover_euc_service_names(
+    cost_explorer: Any, errors: list[ServiceError], lookback_days: int = 30
+) -> list[str]:
+    """Exact Cost Explorer SERVICE names with recent EUC spend (for filters that need them)."""
+    end_d = datetime.now(UTC).date()
+    start_d = end_d - timedelta(days=lookback_days)
+    names: list[str] = []
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "TimePeriod": {"Start": start_d.isoformat(), "End": end_d.isoformat()},
+            "Granularity": "MONTHLY",
+            "Metrics": ["UnblendedCost"],
+            "GroupBy": [{"Type": "DIMENSION", "Key": "SERVICE"}],
+        }
+        if next_token:
+            kwargs["NextPageToken"] = next_token
+        resp = try_call(
+            errors,
+            "AWS Cost Explorer",
+            "GetCostAndUsage",
+            lambda kwargs=kwargs: cost_explorer.get_cost_and_usage(**kwargs),
+            default={},
+        )
+        if not resp:
+            break
+        for period in resp.get("ResultsByTime", []):
+            for group in period.get("Groups", []):
+                service = (group.get("Keys") or [""])[0]
+                if service and _is_euc_service(service) and service not in names:
+                    names.append(service)
+        next_token = resp.get("NextPageToken")
+        if not next_token:
+            break
+    return names
 
 
 def get_euc_cost_summary_core(
     factory: ClientFactory,
-    lookback_days: int = 30,
+    lookback_days: CostLookbackDays = 30,
     granularity: str = "MONTHLY",
-    start_date: str | None = None,
-    end_date: str | None = None,
+    start_date: DateString | None = None,
+    end_date: DateString | None = None,
     split_workspaces: bool = True,
 ) -> CostSummary:
     errors: list[ServiceError] = []
@@ -383,11 +450,234 @@ def get_euc_cost_summary_core(
     )
 
 
+def get_euc_cost_forecast_core(
+    factory: ClientFactory,
+    days_ahead: int = 30,
+    granularity: str = "MONTHLY",
+) -> CostForecast:
+    """Forecast EUC spend using Cost Explorer's GetCostForecast, filtered to EUC services."""
+    errors: list[ServiceError] = []
+    cost_explorer = factory.client(consts.COST_EXPLORER_API, region=consts.COST_EXPLORER_REGION)
+
+    # Forecast windows must start in the future; tomorrow avoids same-day boundary rejections.
+    start_d = datetime.now(UTC).date() + timedelta(days=1)
+    end_d = start_d + timedelta(days=max(1, days_ahead))
+    start, end = start_d.isoformat(), end_d.isoformat()
+
+    # GetCostForecast needs a filter with exact SERVICE names; discover them from recent actuals
+    # (keyword-matched) so naming variants are never guessed wrong.
+    services = _discover_euc_service_names(cost_explorer, errors)
+    if not services:
+        return CostForecast(
+            start=start,
+            end=end,
+            granularity=granularity,
+            errors=errors,
+            notes=[
+                "No EUC spend found in the last 30 days, so there is no history to forecast from."
+            ],
+        )
+
+    resp = try_call(
+        errors,
+        "AWS Cost Explorer",
+        "GetCostForecast",
+        lambda: cost_explorer.get_cost_forecast(
+            TimePeriod={"Start": start, "End": end},
+            Metric="UNBLENDED_COST",
+            Granularity=granularity,
+            Filter={"Dimensions": {"Key": "SERVICE", "Values": services}},
+            PredictionIntervalLevel=80,
+        ),
+        default={},
+    )
+
+    total = (resp or {}).get("Total", {})
+    by_period = [
+        ForecastPeriod(
+            start=p.get("TimePeriod", {}).get("Start", ""),
+            end=p.get("TimePeriod", {}).get("End", ""),
+            mean=round(float(p.get("MeanValue", 0.0)), 2),
+            lower=round(float(p["PredictionIntervalLowerBound"]), 2)
+            if p.get("PredictionIntervalLowerBound")
+            else None,
+            upper=round(float(p["PredictionIntervalUpperBound"]), 2)
+            if p.get("PredictionIntervalUpperBound")
+            else None,
+        )
+        for p in (resp or {}).get("ForecastResultsByTime", [])
+    ]
+    return CostForecast(
+        start=start,
+        end=end,
+        granularity=granularity,
+        currency=total.get("Unit", "USD"),
+        forecast_total=round(float(total["Amount"]), 2) if total.get("Amount") else None,
+        by_period=by_period,
+        filtered_services=services,
+        errors=errors,
+        notes=[
+            "Forecast is Cost Explorer's model (80% prediction interval) over the discovered EUC "
+            "services; it needs sufficient usage history and reflects current usage patterns.",
+        ],
+    )
+
+
+def _fetch_service_usage_totals(
+    cost_explorer: Any,
+    start: str,
+    end: str,
+    service_names: list[str],
+    errors: list[ServiceError],
+) -> dict[tuple[str, str], float]:
+    """(service, usage_type) -> amount over a window, via a two-dimension grouping."""
+    out: dict[tuple[str, str], float] = {}
+    next_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "TimePeriod": {"Start": start, "End": end},
+            "Granularity": "MONTHLY",
+            "Metrics": ["UnblendedCost"],
+            "Filter": {"Dimensions": {"Key": "SERVICE", "Values": service_names}},
+            "GroupBy": [
+                {"Type": "DIMENSION", "Key": "SERVICE"},
+                {"Type": "DIMENSION", "Key": "USAGE_TYPE"},
+            ],
+        }
+        if next_token:
+            kwargs["NextPageToken"] = next_token
+        resp = try_call(
+            errors,
+            "AWS Cost Explorer",
+            "GetCostAndUsage",
+            lambda kwargs=kwargs: cost_explorer.get_cost_and_usage(**kwargs),
+            default={},
+        )
+        if not resp:
+            break
+        for period in resp.get("ResultsByTime", []):
+            for group in period.get("Groups", []):
+                keys = group.get("Keys") or ["", ""]
+                service, usage_type = (keys + ["", ""])[:2]
+                amount = float(group.get("Metrics", {}).get("UnblendedCost", {}).get("Amount", 0.0))
+                out[(service, usage_type)] = out.get((service, usage_type), 0.0) + amount
+        next_token = resp.get("NextPageToken")
+        if not next_token:
+            break
+    return out
+
+
+def _driver_category(service: str, usage_type: str) -> str:
+    """Human bucket for a driver: WorkSpaces splits into Personal/Pools/Core, others keep name."""
+    if _is_core_workspaces_service(service):
+        return _classify_workspaces_usage_type(usage_type)
+    return service
+
+
+def compare_euc_costs_core(
+    factory: ClientFactory,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    baseline_start: str | None = None,
+    baseline_end: str | None = None,
+    top_n: int = 10,
+) -> CostComparison:
+    """Compare two windows of EUC spend and rank the usage-type drivers of the change."""
+    errors: list[ServiceError] = []
+    cost_explorer = factory.client(consts.COST_EXPLORER_API, region=consts.COST_EXPLORER_REGION)
+
+    if start_date and end_date:
+        c_start_d, c_end_d = date.fromisoformat(start_date), date.fromisoformat(end_date)
+    else:
+        c_end_d = datetime.now(UTC).date()
+        c_start_d = c_end_d - timedelta(days=30)
+    if baseline_start and baseline_end:
+        b_start_d, b_end_d = date.fromisoformat(baseline_start), date.fromisoformat(baseline_end)
+    else:
+        length = max(1, (c_end_d - c_start_d).days)
+        b_end_d = c_start_d
+        b_start_d = b_end_d - timedelta(days=length)
+
+    def _window(w_start: str, w_end: str):
+        w_errors: list[ServiceError] = []
+        summary = get_euc_cost_summary_core(
+            factory,
+            granularity="MONTHLY",
+            start_date=w_start,
+            end_date=w_end,
+            split_workspaces=False,
+        )
+        w_errors.extend(summary.errors)
+        services = [li.service for li in summary.by_service if li.amount]
+        usage = (
+            _fetch_service_usage_totals(cost_explorer, w_start, w_end, services, w_errors)
+            if services
+            else {}
+        )
+        return summary, usage, w_errors
+
+    (b_summary, b_usage, b_errors), (c_summary, c_usage, c_errors) = gather_concurrently(
+        lambda: _window(b_start_d.isoformat(), b_end_d.isoformat()),
+        lambda: _window(c_start_d.isoformat(), c_end_d.isoformat()),
+    )
+    errors.extend(b_errors)
+    errors.extend(c_errors)
+
+    b_by_service = {li.service: li.amount for li in b_summary.by_service}
+    c_by_service = {li.service: li.amount for li in c_summary.by_service}
+    by_service_delta = {
+        svc: {
+            "baseline": round(b_by_service.get(svc, 0.0), 2),
+            "comparison": round(c_by_service.get(svc, 0.0), 2),
+            "delta": round(c_by_service.get(svc, 0.0) - b_by_service.get(svc, 0.0), 2),
+        }
+        for svc in sorted(set(b_by_service) | set(c_by_service))
+    }
+
+    drivers = [
+        CostDriver(
+            usage_type=usage_type,
+            category=_driver_category(service, usage_type),
+            baseline=round(b_usage.get((service, usage_type), 0.0), 2),
+            comparison=round(c_usage.get((service, usage_type), 0.0), 2),
+            delta=round(
+                c_usage.get((service, usage_type), 0.0) - b_usage.get((service, usage_type), 0.0),
+                2,
+            ),
+        )
+        for service, usage_type in set(b_usage) | set(c_usage)
+    ]
+    drivers = [d for d in drivers if abs(d.delta) >= 0.01]
+    drivers.sort(key=lambda d: abs(d.delta), reverse=True)
+
+    delta = round(c_summary.total - b_summary.total, 2)
+    return CostComparison(
+        baseline_start=b_start_d.isoformat(),
+        baseline_end=b_end_d.isoformat(),
+        comparison_start=c_start_d.isoformat(),
+        comparison_end=c_end_d.isoformat(),
+        currency=c_summary.currency,
+        baseline_total=b_summary.total,
+        comparison_total=c_summary.total,
+        delta=delta,
+        delta_pct=round(delta / b_summary.total * 100, 1) if b_summary.total else None,
+        by_service_delta=by_service_delta,
+        top_drivers=drivers[: max(1, top_n)],
+        errors=errors,
+        notes=[
+            "Windows use Cost Explorer's exclusive end date. When only start/end are given, the "
+            "baseline defaults to the preceding window of equal length.",
+            "Drivers are usage-type-level changes; WorkSpaces usage types are bucketed into "
+            "Personal / Pools / Core, other services keep their service name.",
+        ],
+    )
+
+
 def register(mcp: Any, factory: ClientFactory) -> None:
     """Register cost & utilization tools on the FastMCP app."""
 
     async def analyze_workspace_utilization(
-        region: str | None = None, lookback_days: int = 14
+        region: str | None = None, lookback_days: LookbackDays = 14
     ) -> dict[str, Any]:
         """Classify WorkSpaces Personal desktops as unused / idle / active.
 
@@ -404,7 +694,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def recommend_running_mode(
-        region: str | None = None, lookback_days: int = 14
+        region: str | None = None, lookback_days: LookbackDays = 14
     ) -> dict[str, Any]:
         """Recommend AlwaysOn -> AutoStop running-mode changes for under-used desktops.
 
@@ -420,10 +710,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def get_euc_cost_summary(
-        lookback_days: int = 30,
+        lookback_days: CostLookbackDays = 30,
         granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY",
-        start_date: str | None = None,
-        end_date: str | None = None,
+        start_date: DateString | None = None,
+        end_date: DateString | None = None,
         split_workspaces: bool = True,
     ) -> dict[str, Any]:
         """Summarize EUC spend by service over a window (account-wide via Cost Explorer).
@@ -460,8 +750,67 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return summary.model_dump()
 
+    async def get_euc_cost_forecast(
+        days_ahead: ForecastDays = 30,
+        granularity: Literal["MONTHLY", "DAILY"] = "MONTHLY",
+    ) -> dict[str, Any]:
+        """Forecast upcoming EUC spend (account-wide, via Cost Explorer's forecasting model).
+
+        Answers "what will my WorkSpaces/EUC bill be?" — returns the mean forecast total for the
+        window plus per-period values with an 80% prediction interval. The forecast is filtered to
+        the EUC services discovered in the last 30 days of actual spend, so naming variants are
+        never guessed. Needs sufficient usage history; a data-unavailable error is reported in the
+        payload rather than raised. Read-only.
+
+        Args:
+            days_ahead: How far ahead to forecast, starting tomorrow (default 30).
+            granularity: MONTHLY or DAILY forecast buckets (default MONTHLY).
+        """
+        forecast = await asyncio.to_thread(
+            get_euc_cost_forecast_core, factory, days_ahead, granularity
+        )
+        return forecast.model_dump()
+
+    async def compare_euc_costs(
+        start_date: DateString | None = None,
+        end_date: DateString | None = None,
+        baseline_start: DateString | None = None,
+        baseline_end: DateString | None = None,
+        top_n: int = 10,
+    ) -> dict[str, Any]:
+        """Compare two windows of EUC spend and explain WHY the cost changed.
+
+        Answers "why is this month higher than last month?" — returns totals for both windows, the
+        delta (absolute and %), per-service deltas, and the top usage-type-level drivers of the
+        change (WorkSpaces usage types bucketed into Personal / Pools / Core). Account-wide via
+        Cost Explorer. Read-only.
+
+        Defaults: with no dates, compares the last 30 days against the 30 days before. With only
+        start_date/end_date, the baseline is the preceding window of equal length. End dates are
+        EXCLUSIVE (for May vs June 2026: start_date="2026-06-01", end_date="2026-07-01").
+
+        Args:
+            start_date: Comparison window start (YYYY-MM-DD, inclusive).
+            end_date: Comparison window end (YYYY-MM-DD, exclusive).
+            baseline_start: Optional explicit baseline start; defaults to the preceding window.
+            baseline_end: Optional explicit baseline end (exclusive).
+            top_n: How many drivers to return (default 10).
+        """
+        comparison = await asyncio.to_thread(
+            compare_euc_costs_core,
+            factory,
+            start_date,
+            end_date,
+            baseline_start,
+            baseline_end,
+            top_n,
+        )
+        return comparison.model_dump()
+
     mcp.add_tool(
         analyze_workspace_utilization, annotations=read_only("Analyze WorkSpace utilization")
     )
     mcp.add_tool(recommend_running_mode, annotations=read_only("Recommend running mode"))
     mcp.add_tool(get_euc_cost_summary, annotations=read_only("EUC cost summary"))
+    mcp.add_tool(get_euc_cost_forecast, annotations=read_only("EUC cost forecast"))
+    mcp.add_tool(compare_euc_costs, annotations=read_only("Compare EUC costs"))

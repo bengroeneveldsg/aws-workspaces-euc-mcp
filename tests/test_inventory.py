@@ -158,3 +158,35 @@ def test_paginate_follows_tokens():
     items = paginate(op, "Workspaces")
     assert len(items) == 2
     assert calls["n"] == 2
+
+
+def test_gather_concurrently_preserves_order_and_runs_parallel():
+    """Jobs run concurrently (barrier only releases if all run at once) and keep order."""
+    import threading
+
+    from workspaces_euc_mcp_server.tools import _common
+
+    barrier = threading.Barrier(3, timeout=5)
+
+    def make_job(value):
+        def job():
+            barrier.wait()  # deadlocks (then Barrier timeout) unless all 3 run concurrently
+            return value
+
+        return job
+
+    results = _common.gather_concurrently(make_job("a"), make_job("b"), make_job("c"))
+    assert results == ["a", "b", "c"]
+
+
+def test_gather_concurrently_propagates_exceptions():
+    from workspaces_euc_mcp_server.tools import _common
+
+    def boom():
+        raise ValueError("job failed")
+
+    try:
+        _common.gather_concurrently(lambda: 1, boom)
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "job failed" in str(exc)

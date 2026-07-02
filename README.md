@@ -40,9 +40,10 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 ## Status
 
-**Shipped** (published to PyPI + GHCR) — **21 read-only tools** (Tiers 0–1) plus opt-in **10 write**
-(Tier 2) and **3 destructive** (Tier 3) tools. The read-only inventory, troubleshooting, cost,
-audit, and governance tools:
+**Shipped** (published to PyPI + GHCR) — **24 read-only tools** (Tiers 0–1) plus opt-in **10 write**
+(Tier 2) and **3 destructive** (Tier 3) tools. Cross-service tools collect from all EUC services
+**concurrently**, and tool parameters are bounds-validated at the MCP layer. The read-only
+inventory, troubleshooting, cost, audit, and governance tools:
 
 | Tool | Description |
 |------|-------------|
@@ -62,6 +63,9 @@ audit, and governance tools:
 | `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |
 | `audit_security_posture` | Cross-service: flags unencrypted WorkSpace volumes, directories without IP access control groups, and **Secure Browser portals / Applications stacks that allow data egress** (clipboard/download/print) (Tier 0). |
 | `audit_application_images` | Audits WorkSpaces Applications (AppStream 2.0) **images and image builders** — flags stale base images (unpatched OS), pinned/old AppStream agents, non-AVAILABLE/errored images, SHARED cross-account visibility, and **image builders left RUNNING** (cost + admin surface) (Tier 0). |
+| `get_euc_cost_forecast` | **Forecast upcoming EUC spend** via Cost Explorer's forecasting model — mean total + per-period values with an 80% prediction interval, filtered to the EUC services discovered in recent actual spend (Tier 1). |
+| `compare_euc_costs` | **"Why did my cost change?"** — compares two windows (defaults to the preceding equal-length window), returning totals, per-service deltas, and the top **usage-type-level drivers** of the change, with WorkSpaces usage bucketed into Personal/Pools/Core (Tier 1). |
+| `get_euc_active_alarms` | **CloudWatch alarms currently firing** on EUC resources (AWS/WorkSpaces, AWS/AppStream, AWS/WorkSpacesWeb namespaces) — metric, dimensions, reason, and since-when; auto-scaling policy alarms are flagged as expected rather than incidents (Tier 0). |
 | `get_euc_audit_trail` | **"Who changed what"** — recent EUC management events from CloudTrail (last 90 days, no trail required) across all services; mutations-only by default, flags destructive actions and errors (e.g. AccessDenied) (Tier 0). |
 | `get_euc_service_quotas` | **Service-quota limits + usage headroom** per EUC service; pairs limits with current usage (where AWS publishes a usage metric) to flag quotas approaching their limit — capacity planning (Tier 0). |
 | `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, attached policies, and — when configured — the **data-protection redaction config** (which built-in/custom patterns are redacted, confidence level, enforced/exempt URLs) (Tier 0). |

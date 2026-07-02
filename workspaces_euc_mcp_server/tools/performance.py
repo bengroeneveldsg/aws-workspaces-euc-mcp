@@ -29,7 +29,7 @@ from ..models import (
     WorkspacePerformance,
 )
 from . import pricing
-from ._common import paginate, read_only, try_call
+from ._common import LookbackDays, LookbackHours, PeriodHours, paginate, read_only, try_call
 
 # Right-sizing thresholds on window peak (%). Conservative: only suggest a downsize when there is
 # clear headroom, and an upsize when the desktop is genuinely pressured.
@@ -96,7 +96,7 @@ def get_workspace_performance_core(
     factory: ClientFactory,
     workspace_ids: list[str],
     region: str | None,
-    lookback_hours: int = 3,
+    lookback_hours: LookbackHours = 3,
 ) -> PerformanceReport:
     errors: list[ServiceError] = []
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
@@ -179,7 +179,7 @@ def _rightsizing_recommendation(
 
 
 def recommend_bundle_rightsizing_core(
-    factory: ClientFactory, region: str | None, lookback_days: int = 7
+    factory: ClientFactory, region: str | None, lookback_days: LookbackDays = 7
 ) -> RecommendationReport:
     errors: list[ServiceError] = []
     workspaces_client = factory.client(consts.WORKSPACES_API, region=region)
@@ -367,8 +367,8 @@ def get_application_fleet_usage_core(
     factory: ClientFactory,
     fleet_name: str,
     region: str | None,
-    lookback_days: int = 7,
-    period_hours: int = 24,
+    lookback_days: LookbackDays = 7,
+    period_hours: PeriodHours = 24,
 ) -> FleetUsage:
     errors: list[ServiceError] = []
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
@@ -412,8 +412,8 @@ def get_workspace_connection_history_core(
     factory: ClientFactory,
     workspace_id: str,
     region: str | None,
-    lookback_days: int = 7,
-    period_hours: int = 24,
+    lookback_days: LookbackDays = 7,
+    period_hours: PeriodHours = 24,
 ) -> UsageHistory:
     errors: list[ServiceError] = []
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
@@ -466,8 +466,8 @@ def get_pool_session_history_core(
     factory: ClientFactory,
     pool_id: str,
     region: str | None,
-    lookback_days: int = 7,
-    period_hours: int = 24,
+    lookback_days: LookbackDays = 7,
+    period_hours: PeriodHours = 24,
 ) -> UsageHistory:
     errors: list[ServiceError] = []
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
@@ -501,7 +501,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     """Register performance & right-sizing tools on the FastMCP app."""
 
     async def get_workspace_performance(
-        workspace_ids: list[str], region: str | None = None, lookback_hours: int = 3
+        workspace_ids: list[str], region: str | None = None, lookback_hours: LookbackHours = 3
     ) -> dict[str, Any]:
         """Get native CPU/memory/disk/GPU/latency performance metrics for WorkSpaces Personal.
 
@@ -519,7 +519,7 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         return report.model_dump()
 
     async def recommend_bundle_rightsizing(
-        region: str | None = None, lookback_days: int = 7
+        region: str | None = None, lookback_days: LookbackDays = 7
     ) -> dict[str, Any]:
         """Recommend smaller/larger WorkSpace compute types from CPU & memory headroom.
 
@@ -537,8 +537,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_application_fleet_usage(
         fleet_name: str,
         region: str | None = None,
-        lookback_days: int = 7,
-        period_hours: int = 24,
+        lookback_days: LookbackDays = 7,
+        period_hours: PeriodHours = 24,
     ) -> dict[str, Any]:
         """Get a WorkSpaces Applications (formerly AppStream 2.0) fleet's usage history.
 
@@ -562,8 +562,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_workspace_connection_history(
         workspace_id: str,
         region: str | None = None,
-        lookback_days: int = 7,
-        period_hours: int = 24,
+        lookback_days: LookbackDays = 7,
+        period_hours: PeriodHours = 24,
     ) -> dict[str, Any]:
         """Get a WorkSpaces Personal desktop's connection/session history.
 
@@ -585,8 +585,8 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def get_pool_session_history(
         pool_id: str,
         region: str | None = None,
-        lookback_days: int = 7,
-        period_hours: int = 24,
+        lookback_days: LookbackDays = 7,
+        period_hours: PeriodHours = 24,
     ) -> dict[str, Any]:
         """Get a WorkSpaces Pool's user-session history.
 
