@@ -5,6 +5,17 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-07-03
+
+### Fixed
+- Assistants could conflate **user connections with power state** and wrongly report running
+  (AVAILABLE) desktops as stopped — e.g. answering "what WorkSpaces are running?" from
+  `analyze_workspace_utilization` (which classifies by logons over a window, not lifecycle state).
+  The server instructions and the inventory/utilization/report tool descriptions now state
+  explicitly: power state comes from `get_euc_inventory_summary` (`by_state`) or
+  `generate_inventory_report` (per-desktop `State`); utilization classifications must never be
+  used to claim a desktop is stopped. No API/data changes — the returned data was always correct.
+
 ## [0.1.11] - 2026-07-03
 
 Alignment pass against the awslabs MCP catalog and DESIGN_GUIDELINES, plus features adapted from

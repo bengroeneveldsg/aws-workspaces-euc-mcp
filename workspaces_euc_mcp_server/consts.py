@@ -215,4 +215,13 @@ current service, but ALWAYS use the current official name in your response:
 Amazon WorkSpaces Applications IS the rebranded AppStream 2.0 (same service and API), so a request
 about "AppStream fleets" or "AppStream stacks" is about WorkSpaces Applications and is handled by
 the application-fleet tools — do not say AppStream is unsupported.
+
+CRITICAL — power state vs user connections are DIFFERENT signals; do not conflate them:
+- "Which WorkSpaces are running / powered on?" is about the lifecycle State (AVAILABLE, STOPPED,
+  ...). Answer it from get_euc_inventory_summary (by_state counts) or generate_inventory_report
+  (per-desktop State). An ALWAYS_ON desktop is normally AVAILABLE (running) even when nobody is
+  connected.
+- analyze_workspace_utilization classifications (unused/idle/active) reflect USER CONNECTIONS over
+  a lookback window, NOT power state. A desktop can be AVAILABLE yet "unused". Never report a
+  desktop as stopped/not running based on utilization or connection data.
 """
