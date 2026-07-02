@@ -153,7 +153,13 @@ def test_fleet_usage_returns_series_and_flags_idle_running_capacity():
             },
         }
     )
-    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+    appstream = types.SimpleNamespace(
+        list_associated_stacks=lambda **_: {"Names": ["stack-1"]},
+        describe_sessions=lambda **_: {
+            "Sessions": [{"Id": "s-1", "UserId": "alice", "State": "ACTIVE"}]
+        },
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw, consts.APPSTREAM_API: appstream})
 
     usage = performance.get_application_fleet_usage_core(
         factory, "f-idle", "us-east-1", lookback_days=3, period_hours=24
@@ -165,11 +171,19 @@ def test_fleet_usage_returns_series_and_flags_idle_running_capacity():
     assert len(inuse.series) == 3
     assert usage.metrics["RunningCapacity"].peak == 2.0
     assert "idle running capacity" in (usage.summary or "")
+    # Live sessions from DescribeSessions, alongside the historic series.
+    assert usage.active_session_count == 1
+    assert usage.active_sessions[0].user == "alice"
+    assert usage.active_sessions[0].stack_name == "stack-1"
 
 
 def test_fleet_usage_handles_stopped_fleet():
     cw = _cloudwatch_with_timestamps({})  # no datapoints
-    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+    appstream = types.SimpleNamespace(
+        list_associated_stacks=lambda **_: {"Names": []},
+        describe_sessions=lambda **_: {"Sessions": []},
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw, consts.APPSTREAM_API: appstream})
 
     usage = performance.get_application_fleet_usage_core(factory, "f-stopped", "us-east-1")
 
@@ -226,12 +240,20 @@ def test_pool_session_history_flags_idle_capacity():
             },
         }
     )
-    factory = FakeFactory({consts.CLOUDWATCH_API: cw})
+    workspaces = types.SimpleNamespace(
+        describe_workspaces_pool_sessions=lambda **_: {
+            "Sessions": [{"SessionId": "ps-1", "UserId": "bob", "ConnectionState": "CONNECTED"}]
+        },
+    )
+    factory = FakeFactory({consts.CLOUDWATCH_API: cw, consts.WORKSPACES_API: workspaces})
 
     hist = performance.get_pool_session_history_core(factory, "wspool-1", "us-east-1", 2)
 
     assert hist.target_type == consts.PRODUCT_WORKSPACES_POOLS
     assert "idle pool capacity" in (hist.summary or "")
+    # Live sessions come from the real-time API, alongside the historic series.
+    assert hist.active_session_count == 1
+    assert hist.active_sessions[0].user == "bob"
 
 
 def test_rightsizing_skips_graphics_and_no_data():

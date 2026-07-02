@@ -17,6 +17,7 @@ from .clients import ClientFactory
 from .sso import SsoAutoLogin
 from .tools import (
     _common,
+    access,
     cost,
     destructive,
     diagnostics,
@@ -68,6 +69,7 @@ def create_server(
     secure_browser.register(mcp, factory)
     images.register(mcp, factory)
     governance.register(mcp, factory)
+    access.register(mcp, factory)
 
     if enable_writes:
         logger.info(

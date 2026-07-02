@@ -40,6 +40,29 @@ _BATCH_DESTRUCTIVE = {
 }
 
 
+def _snapshot_notes(client: Any, workspace_ids: list[str], kind: str) -> list[str]:
+    """Last snapshot time per target — makes the data-loss window concrete."""
+    key = "RebuildSnapshots" if kind == "rebuild" else "RestoreSnapshots"
+    notes: list[str] = []
+    for wid in workspace_ids:
+        throwaway: list[ServiceError] = []
+        resp = try_call(
+            throwaway,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaceSnapshots",
+            lambda wid=wid: client.describe_workspace_snapshots(WorkspaceId=wid),
+            default={},
+        )
+        snaps = (resp or {}).get(key) or []
+        if snaps:
+            t = snaps[0].get("SnapshotTime")
+            iso = t.isoformat() if hasattr(t, "isoformat") else str(t)
+            notes.append(f"{wid}: last {kind} snapshot {iso} — data after this time will be lost.")
+        elif not throwaway:
+            notes.append(f"{wid}: no {kind} snapshot found.")
+    return notes
+
+
 def _dry_run(action: str, ids: list[str], max_bulk: int, detail: str, impact: str) -> WriteOutcome:
     return WriteOutcome(
         action=action,
@@ -127,7 +150,11 @@ def batch_destructive_core(
         )
 
     if not confirm:
-        return _dry_run(action, workspace_ids, max_bulk_targets, detail, impact)
+        outcome = _dry_run(action, workspace_ids, max_bulk_targets, detail, impact)
+        if action == "rebuild":
+            client = factory.client(consts.WORKSPACES_API, region=region)
+            outcome.notes = _snapshot_notes(client, workspace_ids, "rebuild") + outcome.notes
+        return outcome
 
     if len(workspace_ids) > max_bulk_targets:
         return _refuse(
@@ -181,7 +208,10 @@ def restore_workspace_core(
     ids = [workspace_id]
 
     if not confirm:
-        return _dry_run(action, ids, max_bulk_targets, detail, impact)
+        outcome = _dry_run(action, ids, max_bulk_targets, detail, impact)
+        client = factory.client(consts.WORKSPACES_API, region=region)
+        outcome.notes = _snapshot_notes(client, ids, "restore") + outcome.notes
+        return outcome
 
     if acknowledge.strip() != required_phrase:
         return _refuse(

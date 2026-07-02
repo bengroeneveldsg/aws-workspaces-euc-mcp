@@ -33,6 +33,11 @@ def _cloudwatch_by_workspace(values_by_id: dict[str, list[float]]):
 
 def test_generate_inventory_report_sections():
     workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
         describe_workspaces=lambda **_: {
             "Workspaces": [
                 {
@@ -67,6 +72,9 @@ def test_generate_inventory_report_sections():
     appstream = types.SimpleNamespace(
         describe_fleets=lambda **_: {
             "Fleets": [{"Name": "f1", "State": "RUNNING", "InstanceType": "stream.standard.medium"}]
+        },
+        describe_usage_report_subscriptions=lambda **_: {
+            "UsageReportSubscriptions": [{"S3BucketName": "b"}]
         },
         describe_stacks=lambda **_: {"Stacks": [{"Name": "stack-1", "DisplayName": "Stack One"}]},
         list_associated_fleets=lambda **_: {"Names": ["f1"]},
@@ -149,11 +157,21 @@ def _empty_secure_browser():
 
 
 def _empty_appstream():
-    return types.SimpleNamespace(describe_stacks=lambda **_: {"Stacks": []})
+    return types.SimpleNamespace(
+        describe_stacks=lambda **_: {"Stacks": []},
+        describe_usage_report_subscriptions=lambda **_: {
+            "UsageReportSubscriptions": [{"S3BucketName": "b"}]
+        },
+    )
 
 
 def test_audit_flags_unencrypted_and_missing_ip_groups():
     workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
         describe_workspaces=lambda **_: {
             "Workspaces": [
                 {
@@ -168,6 +186,7 @@ def test_audit_flags_unencrypted_and_missing_ip_groups():
                 },
             ]
         },
+        describe_ip_groups=lambda **_: {"Result": []},
         describe_workspace_directories=lambda **_: {
             "Directories": [
                 {"DirectoryId": "d-open", "ipGroupIds": []},
@@ -199,6 +218,11 @@ def test_audit_flags_unencrypted_and_missing_ip_groups():
 
 def test_audit_clean_account_reports_info():
     workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
         describe_workspaces=lambda **_: {
             "Workspaces": [
                 {
@@ -208,6 +232,7 @@ def test_audit_clean_account_reports_info():
                 }
             ]
         },
+        describe_ip_groups=lambda **_: {"Result": []},
         describe_workspace_directories=lambda **_: {
             "Directories": [{"DirectoryId": "d-ok", "ipGroupIds": ["wsipg-1"]}]
         },
@@ -227,7 +252,13 @@ def test_audit_clean_account_reports_info():
 
 def test_audit_flags_data_egress_on_portals_and_stacks():
     workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
         describe_workspaces=lambda **_: {"Workspaces": []},
+        describe_ip_groups=lambda **_: {"Result": []},
         describe_workspace_directories=lambda **_: {"Directories": []},
     )
     secure = types.SimpleNamespace(
@@ -241,6 +272,9 @@ def test_audit_flags_data_egress_on_portals_and_stacks():
         },
     )
     appstream = types.SimpleNamespace(
+        describe_usage_report_subscriptions=lambda **_: {
+            "UsageReportSubscriptions": [{"S3BucketName": "b"}]
+        },
         describe_stacks=lambda **_: {
             "Stacks": [
                 {
@@ -275,6 +309,11 @@ def test_audit_flags_data_egress_on_portals_and_stacks():
 
 def test_list_unused_resources_combines_sources():
     workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
         describe_workspaces=lambda **_: {
             "Workspaces": [
                 {"WorkspaceId": "ws-unused", "WorkspaceProperties": {"RunningMode": "ALWAYS_ON"}},
@@ -304,3 +343,53 @@ def test_list_unused_resources_combines_sources():
 
     ids = {item.id for item in report.items}
     assert ids == {"ws-unused", "f-stopped"}
+
+
+def test_audit_flags_open_ip_group_and_portal_gaps():
+    workspaces = types.SimpleNamespace(
+        describe_workspace_bundles=lambda **kw: {
+            "Bundles": [
+                {"BundleId": bid, "Name": f"bundle-{bid}"} for bid in kw.get("BundleIds", [])
+            ]
+        },
+        describe_workspaces=lambda **_: {"Workspaces": []},
+        describe_ip_groups=lambda **_: {
+            "Result": [
+                {
+                    "groupId": "wsipg-open",
+                    "groupName": "everyone",
+                    "userRules": [{"ipRule": "0.0.0.0/0"}],
+                },
+                {"groupId": "wsipg-ok", "userRules": [{"ipRule": "203.0.113.0/24"}]},
+            ]
+        },
+        describe_workspace_directories=lambda **_: {"Directories": []},
+    )
+    secure = types.SimpleNamespace(
+        list_portals=lambda **_: {
+            "portals": [
+                {
+                    "portalArn": "arn:p/bare",
+                    "displayName": "Bare",
+                    # no ipAccessSettingsArn, no sessionLoggerArn/userAccessLoggingSettingsArn
+                }
+            ]
+        },
+    )
+    appstream = _empty_appstream()
+    factory = FakeFactory(
+        {
+            consts.WORKSPACES_API: workspaces,
+            consts.SECURE_BROWSER_API: secure,
+            consts.APPSTREAM_API: appstream,
+        }
+    )
+
+    report = reporting.audit_security_posture_core(factory, "us-east-1")
+
+    titles = [f.title for f in report.findings]
+    assert any("0.0.0.0/0" in t for t in titles)
+    assert any("no IP access restrictions" in t for t in titles)
+    assert any("no session logging" in t for t in titles)
+    # The clean rule set is not flagged.
+    assert not any(f.resource_id == "wsipg-ok" for f in report.findings)

@@ -187,3 +187,27 @@ def test_destructive_tools_gated_by_flags():
     destructive_tools = {"terminate_workspaces", "rebuild_workspaces", "restore_workspace"}
     assert destructive_tools.isdisjoint(writes_names)  # absent with writes only
     assert destructive_tools <= destr_names  # present when destructive enabled
+
+
+def test_rebuild_dry_run_includes_last_snapshot_time():
+    client = types.SimpleNamespace(
+        describe_workspace_snapshots=lambda **_: {
+            "RebuildSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
+            "RestoreSnapshots": [],
+        }
+    )
+    factory = FakeFactory({consts.WORKSPACES_API: client})
+
+    outcome = destructive.batch_destructive_core(
+        factory,
+        "us-east-1",
+        "rebuild",
+        ["ws-abc"],
+        confirm=False,
+        acknowledge="",
+        max_bulk_targets=25,
+    )
+
+    assert outcome.dry_run is True
+    assert any("last rebuild snapshot 2026-07-02T05:19:24" in n for n in outcome.notes)
+    assert any("data after this time will be lost" in n for n in outcome.notes)

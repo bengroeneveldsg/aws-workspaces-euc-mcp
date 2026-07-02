@@ -46,13 +46,51 @@ def _managed_instance_record(instance: dict, ec2_by_id: dict[str, dict]) -> Reso
     )
 
 
-def generate_inventory_report_core(factory: ClientFactory, region: str | None) -> InventoryReport:
+def generate_inventory_report_core(
+    factory: ClientFactory, region: str | None, include_tags: bool = False
+) -> InventoryReport:
     """Detailed per-resource inventory; the six per-service sections collect concurrently."""
     # Clients are created up front on this thread; only their (thread-safe) methods run in jobs.
     workspaces = factory.client(consts.WORKSPACES_API, region=region)
     appstream = factory.client(consts.APPSTREAM_API, region=region)
     secure_browser = factory.client(consts.SECURE_BROWSER_API, region=region)
     instances_client = factory.client(consts.WORKSPACES_INSTANCES_API, region=region)
+
+    def _ws_tags(resource_id: str, errors: list[ServiceError]) -> dict[str, str]:
+        if not include_tags or not resource_id:
+            return {}
+        raw = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeTags",
+            lambda: workspaces.describe_tags(ResourceId=resource_id).get("TagList", []),
+            default=[],
+        )
+        return {t.get("Key", ""): t.get("Value", "") for t in (raw or []) if t.get("Key")}
+
+    def _appstream_tags(arn: str | None, errors: list[ServiceError]) -> dict[str, str]:
+        if not include_tags or not arn:
+            return {}
+        raw = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "ListTagsForResource",
+            lambda: appstream.list_tags_for_resource(ResourceArn=arn).get("Tags", {}),
+            default={},
+        )
+        return dict(raw or {})
+
+    def _web_tags(arn: str | None, errors: list[ServiceError]) -> dict[str, str]:
+        if not include_tags or not arn:
+            return {}
+        raw = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "ListTagsForResource",
+            lambda: secure_browser.list_tags_for_resource(resourceArn=arn).get("tags", []),
+            default=[],
+        )
+        return {t.get("Key", ""): t.get("Value", "") for t in (raw or []) if t.get("Key")}
 
     def _personal_section() -> tuple[InventoryReportSection, list[ServiceError]]:
         errors: list[ServiceError] = []
@@ -63,6 +101,22 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
             lambda: paginate(workspaces.describe_workspaces, "Workspaces"),
             default=[],
         )
+        # Resolve bundle ids to names/specs (DescribeWorkspaceBundles takes at most 25 ids).
+        bundle_ids = sorted({w.get("BundleId") for w in (personal or []) if w.get("BundleId")})
+        bundles: dict[str, dict] = {}
+        for i in range(0, len(bundle_ids), 25):
+            chunk = bundle_ids[i : i + 25]
+            result = try_call(
+                errors,
+                consts.PRODUCT_WORKSPACES_PERSONAL,
+                "DescribeWorkspaceBundles",
+                lambda chunk=chunk: workspaces.describe_workspace_bundles(BundleIds=chunk).get(
+                    "Bundles", []
+                ),
+                default=[],
+            )
+            for b in result or []:
+                bundles[b.get("BundleId", "")] = b
         section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_PERSONAL,
             resource_type="WorkSpace",
@@ -77,6 +131,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "ip_address": w.get("IpAddress"),
                         "directory_id": w.get("DirectoryId"),
                         "bundle_id": w.get("BundleId"),
+                        "bundle_name": bundles.get(w.get("BundleId", ""), {}).get("Name"),
                         "compute_type": w.get("WorkspaceProperties", {}).get("ComputeTypeName"),
                         "running_mode": w.get("WorkspaceProperties", {}).get("RunningMode"),
                         "operating_system": w.get("WorkspaceProperties", {}).get(
@@ -95,6 +150,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "root_volume_encrypted": w.get("RootVolumeEncryptionEnabled"),
                         "user_volume_encrypted": w.get("UserVolumeEncryptionEnabled"),
                         "subnet_id": w.get("SubnetId"),
+                        "tags": _ws_tags(w.get("WorkspaceId", ""), errors),
                     },
                 )
                 for w in (personal or [])
@@ -127,6 +183,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "description": p.get("Description"),
                         "created_at": str(p.get("CreatedAt")) if p.get("CreatedAt") else None,
                         "errors": p.get("Errors"),
+                        "tags": _ws_tags(p.get("PoolId", ""), errors),
                     },
                 )
                 for p in (pools or [])
@@ -161,6 +218,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "disconnect_timeout_seconds": f.get("DisconnectTimeoutInSeconds"),
                         "max_sessions_per_instance": f.get("MaxSessionsPerInstance"),
                         "default_internet_access": f.get("EnableDefaultInternetAccess"),
+                        "tags": _appstream_tags(f.get("Arn"), errors),
                     },
                 )
                 for f in (fleets or [])
@@ -199,6 +257,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "user_settings": s.get("UserSettings"),
                         "storage_connectors": s.get("StorageConnectors"),
                         "application_settings": s.get("ApplicationSettings"),
+                        "tags": _appstream_tags(s.get("Arn"), errors),
                     },
                 )
             )
@@ -238,6 +297,7 @@ def generate_inventory_report_core(factory: ClientFactory, region: str | None) -
                         "instance_type": p.get("instanceType"),
                         "renderer_type": p.get("rendererType"),
                         "portal_endpoint": p.get("portalEndpoint"),
+                        "tags": _web_tags(p.get("portalArn"), errors),
                     },
                 )
                 for p in (portals or [])
@@ -359,6 +419,36 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
                 )
         return findings, {"directories": len(directories or [])}, errors
 
+    def _check_ip_groups() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        groups = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeIpGroups",
+            lambda: paginate(workspaces.describe_ip_groups, "Result"),
+            default=[],
+        )
+        for g in groups or []:
+            gid = g.get("groupId", "")
+            open_rules = [
+                r.get("ipRule")
+                for r in (g.get("userRules") or [])
+                if (r.get("ipRule") or "").startswith("0.0.0.0/0")
+            ]
+            if open_rules:
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title="IP access control group allows all source IPs (0.0.0.0/0)",
+                        detail=f"Group {g.get('groupName') or gid} contains {open_rules[0]}, which "
+                        "defeats the purpose of IP-based access control.",
+                        recommendation="Replace 0.0.0.0/0 with the specific trusted ranges.",
+                        resource_id=gid,
+                    )
+                )
+        return findings, {"ip_groups": len(groups or [])}, errors
+
     def _check_portals() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
         # Secure Browser portals: flag relaxed data-egress controls (download/copy/print enabled).
         errors: list[ServiceError] = []
@@ -377,6 +467,30 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
         )
         for p in portals or []:
             arn = p.get("portalArn", "")
+            portal_label = p.get("displayName") or arn
+            if not p.get("ipAccessSettingsArn"):
+                findings.append(
+                    Finding(
+                        severity="warning",
+                        title="Secure Browser portal has no IP access restrictions",
+                        detail=f"Portal {portal_label} has no IP access settings attached, so it "
+                        "is reachable from any source IP.",
+                        recommendation="Attach IP access settings restricting trusted ranges.",
+                        resource_id=arn,
+                    )
+                )
+            if not (p.get("sessionLoggerArn") or p.get("userAccessLoggingSettingsArn")):
+                findings.append(
+                    Finding(
+                        severity="info",
+                        title="Secure Browser portal has no session logging",
+                        detail=f"Portal {portal_label} has neither a session logger nor "
+                        "user-access-logging settings attached, so session activity is not "
+                        "recorded.",
+                        recommendation="Attach a Session Logger for auditable session records.",
+                        resource_id=arn,
+                    )
+                )
             us_arn = p.get("userSettingsArn")
             if not us_arn:
                 continue
@@ -444,8 +558,38 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
                 )
         return findings, {"stacks": len(stacks or [])}, errors
 
+    def _check_usage_reports() -> tuple[list[Finding], dict[str, int], list[ServiceError]]:
+        errors: list[ServiceError] = []
+        findings: list[Finding] = []
+        subs = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "DescribeUsageReportSubscriptions",
+            lambda: paginate(
+                appstream.describe_usage_report_subscriptions, "UsageReportSubscriptions"
+            ),
+            default=[],
+        )
+        if not (subs or []):
+            findings.append(
+                Finding(
+                    severity="info",
+                    title="WorkSpaces Applications usage reports are not enabled",
+                    detail="No usage report subscription exists, so per-session usage data is not "
+                    "being delivered to S3 for analysis.",
+                    recommendation="Enable usage reports in the WorkSpaces Applications console "
+                    "for session-level auditing/chargeback.",
+                )
+            )
+        return findings, {}, errors
+
     results = gather_concurrently(
-        _check_workspace_encryption, _check_directories, _check_portals, _check_stacks
+        _check_workspace_encryption,
+        _check_directories,
+        _check_ip_groups,
+        _check_portals,
+        _check_stacks,
+        _check_usage_reports,
     )
     findings = [f for job_findings, _, _ in results for f in job_findings]
     resources_checked: dict[str, int] = {}
@@ -458,8 +602,9 @@ def audit_security_posture_core(factory: ClientFactory, region: str | None) -> A
             Finding(
                 severity="info",
                 title="No posture issues found in the checks performed",
-                detail="Checked WorkSpace volume encryption, directory IP access groups, and "
-                "Secure Browser / Applications data-egress controls.",
+                detail="Checked WorkSpace volume encryption, directory IP access groups and rules, "
+                "Secure Browser IP/session-logging/data-egress controls, and Applications "
+                "stack egress + usage reporting.",
             )
         )
 
@@ -536,7 +681,9 @@ def list_unused_resources_core(
 def register(mcp: Any, factory: ClientFactory) -> None:
     """Register reporting & audit tools on the FastMCP app."""
 
-    async def generate_inventory_report(region: str | None = None) -> dict[str, Any]:
+    async def generate_inventory_report(
+        region: str | None = None, include_tags: bool = False
+    ) -> dict[str, Any]:
         """Produce a detailed per-resource inventory across the EUC portfolio.
 
         Lists WorkSpaces Personal desktops, WorkSpaces Pools, WorkSpaces Applications (formerly
@@ -547,9 +694,11 @@ def register(mcp: Any, factory: ClientFactory) -> None:
 
         Args:
             region: AWS region. Defaults to the server's configured region.
+            include_tags: Also fetch resource tags (ownership/cost-allocation) — one extra API
+                call per resource, so slower on large estates (default False).
         """
         report = await asyncio.to_thread(
-            generate_inventory_report_core, factory, region or factory.region
+            generate_inventory_report_core, factory, region or factory.region, include_tags
         )
         return report.model_dump()
 

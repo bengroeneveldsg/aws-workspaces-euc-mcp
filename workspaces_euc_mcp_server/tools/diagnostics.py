@@ -198,6 +198,36 @@ def diagnose_workspace_connectivity_core(
                 )
             )
 
+    # Snapshot recency (optional enrichment; failures are silent, not errors).
+    throwaway: list[ServiceError] = []
+    snaps = try_call(
+        throwaway,
+        consts.PRODUCT_WORKSPACES_PERSONAL,
+        "DescribeWorkspaceSnapshots",
+        lambda: workspaces.describe_workspace_snapshots(WorkspaceId=workspace_id),
+        default={},
+    )
+    for side, key in (("restore", "RestoreSnapshots"), ("rebuild", "RebuildSnapshots")):
+        entries = (snaps or {}).get(key) or []
+        if entries:
+            t = entries[0].get("SnapshotTime")
+            signals[f"last_{side}_snapshot"] = t.isoformat() if hasattr(t, "isoformat") else str(t)
+
+    # Snapshot recency (optional enrichment; failures are silent, not errors).
+    throwaway: list[ServiceError] = []
+    snaps = try_call(
+        throwaway,
+        consts.PRODUCT_WORKSPACES_PERSONAL,
+        "DescribeWorkspaceSnapshots",
+        lambda: workspaces.describe_workspace_snapshots(WorkspaceId=workspace_id),
+        default={},
+    )
+    for side, key in (("restore", "RestoreSnapshots"), ("rebuild", "RebuildSnapshots")):
+        entries = (snaps or {}).get(key) or []
+        if entries:
+            t = entries[0].get("SnapshotTime")
+            signals[f"last_{side}_snapshot"] = t.isoformat() if hasattr(t, "isoformat") else str(t)
+
     if directory_id:
         _diagnose_directory_into(
             factory,
@@ -631,6 +661,11 @@ def diagnose_pool_core(
     signals["state"] = state
     signals["running_mode"] = pool.get("RunningMode")
     signals["directory_id"] = directory_id
+
+    # LIVE sessions right now (real-time API, not CloudWatch).
+    from .performance import pool_live_sessions
+
+    signals["active_sessions_now"] = len(pool_live_sessions(workspaces, pool_id, errors))
 
     if state == "STOPPED":
         findings.append(

@@ -131,12 +131,28 @@ class FleetMetricSeries(BaseModel):
     series: list[UsagePoint] = Field(default_factory=list)
 
 
+class LiveSession(BaseModel):
+    """A live user session, from the service's real-time sessions API (not CloudWatch)."""
+
+    session_id: str
+    user: str | None = None
+    state: str | None = None
+    connection_state: str | None = None
+    start_time: str | None = None
+    stack_name: str | None = None
+
+
 class FleetUsage(BaseModel):
-    """Usage history for a WorkSpaces Applications fleet over a window."""
+    """Usage history for a WorkSpaces Applications fleet over a window, plus live sessions."""
 
     fleet_name: str
     lookback_days: int
     period_hours: int
+    active_session_count: int = 0
+    active_sessions: list[LiveSession] = Field(
+        default_factory=list,
+        description="Sessions streaming RIGHT NOW (DescribeSessions) — live, not historic.",
+    )
     metrics: dict[str, FleetMetricSeries] = Field(default_factory=dict)
     summary: str | None = None
     errors: list[ServiceError] = Field(default_factory=list)
@@ -155,6 +171,25 @@ class SecureBrowserPortalDetails(BaseModel):
     )
     network: dict[str, object] = Field(default_factory=dict)
     has_browser_policy: bool = False
+    browser_policy: dict[str, object] = Field(
+        default_factory=dict,
+        description=(
+            "Summary of the attached Chrome browser policy: policy names, count, and any URL "
+            "allow/block lists."
+        ),
+    )
+    ip_access: dict[str, object] = Field(
+        default_factory=dict,
+        description="Attached IP access settings (allowed ranges); empty = unrestricted by IP.",
+    )
+    has_session_logging: bool = Field(
+        default=False,
+        description="True when a session logger or user-access-logging settings are attached.",
+    )
+    identity_providers: list[dict[str, object]] = Field(
+        default_factory=list,
+        description="Identity providers attached to the portal (name + type).",
+    )
     has_data_protection: bool = False
     data_protection: dict[str, object] = Field(
         default_factory=dict,
@@ -296,6 +331,11 @@ class UsageHistory(BaseModel):
     target_id: str
     lookback_days: int
     period_hours: int
+    active_session_count: int | None = Field(
+        default=None,
+        description="Live sessions right now, where the service exposes a real-time sessions API.",
+    )
+    active_sessions: list[LiveSession] = Field(default_factory=list)
     metrics: dict[str, FleetMetricSeries] = Field(default_factory=dict)
     summary: str | None = None
     errors: list[ServiceError] = Field(default_factory=list)
@@ -578,14 +618,45 @@ class ApplicationImageBuilderInfo(BaseModel):
 
 
 class ApplicationImageAuditReport(BaseModel):
-    """Audit of WorkSpaces Applications (AppStream 2.0) images and image builders."""
+    """Audit of WorkSpaces Applications (AppStream 2.0) images, image and app-block builders."""
 
     region: str | None = None
     image_count: int = 0
     image_builder_count: int = 0
     running_image_builders: int = 0
+    app_block_builder_count: int = 0
+    running_app_block_builders: int = 0
     images: list[ApplicationImageInfo] = Field(default_factory=list)
     image_builders: list[ApplicationImageBuilderInfo] = Field(default_factory=list)
+    app_block_builders: list[ApplicationImageBuilderInfo] = Field(
+        default_factory=list,
+        description="Elastic-fleet app block builders; RUNNING ones bill per hour like image "
+        "builders.",
+    )
+    findings: list[ApplicationImageFinding] = Field(default_factory=list)
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class WorkspaceImageInfo(BaseModel):
+    """A WorkSpaces Personal custom image."""
+
+    image_id: str
+    name: str | None = None
+    state: str | None = None
+    operating_system: str | None = None
+    created: str | None = None
+    age_days: int | None = None
+    owner_account: str | None = None
+    shared_with_accounts: list[str] = Field(default_factory=list)
+
+
+class WorkspaceImageAuditReport(BaseModel):
+    """Audit of WorkSpaces Personal custom images (state, age, cross-account sharing)."""
+
+    region: str | None = None
+    image_count: int = 0
+    images: list[WorkspaceImageInfo] = Field(default_factory=list)
     findings: list[ApplicationImageFinding] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)

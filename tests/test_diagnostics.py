@@ -61,6 +61,10 @@ def test_workspace_connectivity_healthy():
                 }
             ]
         },
+        describe_workspace_snapshots=lambda **_: {
+            "RestoreSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
+            "RebuildSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
+        },
         describe_workspaces_connection_status=lambda **_: {
             "WorkspacesConnectionStatus": [{"ConnectionState": "CONNECTED"}]
         },
@@ -86,6 +90,10 @@ def test_workspace_connectivity_unhealthy_state():
     workspaces = types.SimpleNamespace(
         describe_workspaces=lambda **_: {
             "Workspaces": [{"WorkspaceId": "ws-2", "State": "UNHEALTHY", "DirectoryId": "d-123"}]
+        },
+        describe_workspace_snapshots=lambda **_: {
+            "RestoreSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
+            "RebuildSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
         },
         describe_workspaces_connection_status=lambda **_: {"WorkspacesConnectionStatus": []},
         describe_workspace_directories=ws_dir.describe_workspace_directories,
@@ -120,6 +128,10 @@ def test_workspace_connectivity_flags_connection_failures():
     workspaces = types.SimpleNamespace(
         describe_workspaces=lambda **_: {
             "Workspaces": [{"WorkspaceId": "ws-3", "State": "AVAILABLE", "DirectoryId": "d-123"}]
+        },
+        describe_workspace_snapshots=lambda **_: {
+            "RestoreSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
+            "RebuildSnapshots": [{"SnapshotTime": "2026-07-02T05:19:24"}],
         },
         describe_workspaces_connection_status=lambda **_: {"WorkspacesConnectionStatus": []},
         describe_workspace_directories=ws_dir.describe_workspace_directories,
@@ -296,6 +308,7 @@ def test_application_fleet_surfaces_fleet_errors():
 def test_pool_diagnosis_healthy():
     ws_dir, ds = _healthy_directory_clients()
     workspaces = types.SimpleNamespace(
+        describe_workspaces_pool_sessions=lambda **_: {"Sessions": []},
         describe_workspaces_pools=lambda **_: {
             "WorkspacesPools": [
                 {
@@ -330,6 +343,7 @@ def test_pool_diagnosis_healthy():
 
 def test_pool_diagnosis_capacity_exhausted_and_errors():
     workspaces = types.SimpleNamespace(
+        describe_workspaces_pool_sessions=lambda **_: {"Sessions": []},
         describe_workspaces_pools=lambda **_: {
             "WorkspacesPools": [
                 {
@@ -363,6 +377,7 @@ def test_pool_diagnosis_capacity_exhausted_and_errors():
 
 def test_pool_diagnosis_not_found():
     workspaces = types.SimpleNamespace(
+        describe_workspaces_pool_sessions=lambda **_: {"Sessions": []},
         describe_workspaces_pools=lambda **_: {"WorkspacesPools": []},
     )
     factory = FakeFactory({consts.WORKSPACES_API: workspaces})

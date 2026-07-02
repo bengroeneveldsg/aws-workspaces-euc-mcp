@@ -31,7 +31,9 @@ def _appstream(images_by_type: dict[str, list[dict]], builders: list[dict]):
         return {"ImageBuilders": builders}
 
     return types.SimpleNamespace(
-        describe_images=describe_images, describe_image_builders=describe_image_builders
+        describe_images=describe_images,
+        describe_image_builders=describe_image_builders,
+        describe_app_block_builders=lambda **_: {"AppBlockBuilders": []},
     )
 
 
@@ -107,9 +109,61 @@ def test_audit_flags_shared_visibility_and_records_errors():
         )
 
     client = types.SimpleNamespace(
-        describe_images=describe_images, describe_image_builders=describe_image_builders
+        describe_images=describe_images,
+        describe_image_builders=describe_image_builders,
+        describe_app_block_builders=lambda **_: {"AppBlockBuilders": []},
     )
     report = images.audit_application_images_core(FakeFactory(client), "ap-southeast-1")
 
     assert any(f.target == "SharedIn" and "SHARED" in f.issue for f in report.findings)
     assert any(e.operation == "DescribeImageBuilders" for e in report.errors)
+
+
+def test_audit_flags_running_app_block_builder():
+    client = types.SimpleNamespace(
+        describe_images=lambda **_: {"Images": []},
+        describe_image_builders=lambda **_: {"ImageBuilders": []},
+        describe_app_block_builders=lambda **_: {
+            "AppBlockBuilders": [
+                {"Name": "abb-live", "State": "RUNNING", "Platform": "WINDOWS_SERVER_2022"},
+                {"Name": "abb-idle", "State": "STOPPED"},
+            ]
+        },
+    )
+    report = images.audit_application_images_core(FakeFactory(client), "ap-southeast-1")
+
+    assert report.app_block_builder_count == 2
+    assert report.running_app_block_builders == 1
+    assert any(
+        f.target == "abb-live" and "App block builder is RUNNING" in f.issue
+        for f in report.findings
+    )
+
+
+def test_audit_workspace_images_flags_error_and_sharing():
+    workspaces = types.SimpleNamespace(
+        describe_workspace_images=lambda **_: {
+            "Images": [
+                {"ImageId": "wsi-err", "Name": "Broken", "State": "ERROR"},
+                {"ImageId": "wsi-shared", "Name": "Golden", "State": "AVAILABLE"},
+            ]
+        },
+        describe_workspace_image_permissions=lambda **kw: {
+            "ImagePermissions": [{"SharedAccountId": "111122223333"}]
+            if kw.get("ImageId") == "wsi-shared"
+            else []
+        },
+    )
+
+    class WsFactory:
+        region = "ap-southeast-1"
+
+        def client(self, service_name, region=None):
+            assert service_name == consts.WORKSPACES_API
+            return workspaces
+
+    report = images.audit_workspace_images_core(WsFactory(), "ap-southeast-1")
+
+    assert report.image_count == 2
+    assert any(f.target == "Broken" and "ERROR" in f.issue for f in report.findings)
+    assert any(f.target == "Golden" and "111122223333" in f.issue for f in report.findings)

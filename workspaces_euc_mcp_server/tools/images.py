@@ -14,6 +14,7 @@ audit).
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
@@ -25,6 +26,8 @@ from ..models import (
     ApplicationImageFinding,
     ApplicationImageInfo,
     ServiceError,
+    WorkspaceImageAuditReport,
+    WorkspaceImageInfo,
 )
 from ._common import paginate, read_only, try_call
 
@@ -151,6 +154,17 @@ def audit_application_images_core(
         or []
     )
 
+    app_block_builders_raw = (
+        try_call(
+            errors,
+            product,
+            "DescribeAppBlockBuilders",
+            lambda: paginate(appstream.describe_app_block_builders, "AppBlockBuilders"),
+            default=[],
+        )
+        or []
+    )
+
     images = [_image_info(img) for img in raw_images]
     findings: list[ApplicationImageFinding] = []
     for info in images:
@@ -182,11 +196,39 @@ def audit_application_images_core(
                 )
             )
 
+    app_block_builders: list[ApplicationImageBuilderInfo] = []
+    abb_running = 0
+    for b in app_block_builders_raw:
+        app_block_builders.append(
+            ApplicationImageBuilderInfo(
+                name=b.get("Name", "unknown"),
+                state=b.get("State"),
+                platform=b.get("Platform"),
+                instance_type=b.get("InstanceType"),
+                created=_iso(b.get("CreatedTime")),
+            )
+        )
+        if b.get("State") == "RUNNING":
+            abb_running += 1
+            findings.append(
+                ApplicationImageFinding(
+                    target=b.get("Name", "unknown"),
+                    severity="warning",
+                    issue=(
+                        "App block builder is RUNNING — it bills per hour like an image builder; "
+                        "stop it when not actively packaging an app block."
+                    ),
+                )
+            )
+
     return ApplicationImageAuditReport(
         region=region,
         image_count=len(images),
         image_builder_count=len(builders),
         running_image_builders=running,
+        app_block_builder_count=len(app_block_builders),
+        running_app_block_builders=abb_running,
+        app_block_builders=sorted(app_block_builders, key=lambda b: b.name),
         images=sorted(images, key=lambda i: i.name),
         image_builders=sorted(builders, key=lambda b: b.name),
         findings=findings,
@@ -196,6 +238,92 @@ def audit_application_images_core(
             "images are excluded.",
             f"'Stale base' flags an image whose base was released more than {_STALE_BASE_DAYS} "
             "days ago — rebuild to inherit current OS patches.",
+        ],
+    )
+
+
+def audit_workspace_images_core(
+    factory: ClientFactory, region: str | None
+) -> WorkspaceImageAuditReport:
+    """Audit WorkSpaces Personal custom images: state, age, and cross-account sharing."""
+    errors: list[ServiceError] = []
+    workspaces = factory.client(consts.WORKSPACES_API, region=region)
+
+    raw = (
+        try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaceImages",
+            lambda: paginate(workspaces.describe_workspace_images, "Images"),
+            default=[],
+        )
+        or []
+    )
+
+    images: list[WorkspaceImageInfo] = []
+    findings: list[ApplicationImageFinding] = []
+    for img in raw:
+        image_id = img.get("ImageId", "")
+        perms = try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_PERSONAL,
+            "DescribeWorkspaceImagePermissions",
+            lambda image_id=image_id: paginate(
+                workspaces.describe_workspace_image_permissions,
+                "ImagePermissions",
+                ImageId=image_id,
+            ),
+            default=[],
+        )
+        shared = [p.get("SharedAccountId", "") for p in (perms or []) if p.get("SharedAccountId")]
+        created = img.get("Created")
+        info = WorkspaceImageInfo(
+            image_id=image_id,
+            name=img.get("Name"),
+            state=img.get("State"),
+            operating_system=(img.get("OperatingSystem") or {}).get("Type"),
+            created=_iso(created),
+            age_days=_age_days(created),
+            owner_account=img.get("OwnerAccountId"),
+            shared_with_accounts=shared,
+        )
+        images.append(info)
+        label = info.name or image_id
+        if info.state == "ERROR":
+            findings.append(
+                ApplicationImageFinding(
+                    target=label, severity="warning", issue="Image is in ERROR state."
+                )
+            )
+        if shared:
+            findings.append(
+                ApplicationImageFinding(
+                    target=label,
+                    severity="info",
+                    issue=f"Image is shared with {len(shared)} account(s): {', '.join(shared)} "
+                    "— review whether the sharing is intended.",
+                )
+            )
+        if info.age_days is not None and info.age_days > _STALE_BASE_DAYS:
+            findings.append(
+                ApplicationImageFinding(
+                    target=label,
+                    severity="info",
+                    issue=f"Image was created {info.age_days} days ago; consider refreshing it "
+                    "so new WorkSpaces launch with current OS patches.",
+                )
+            )
+
+    return WorkspaceImageAuditReport(
+        region=region,
+        image_count=len(images),
+        images=sorted(images, key=lambda i: i.name or i.image_id),
+        findings=findings,
+        errors=errors,
+        notes=[
+            "Covers the account's own WorkSpaces Personal custom images. Age is time since image "
+            "creation — unlike WorkSpaces Applications images there is no public-base-release "
+            "signal, so treat age as a refresh prompt rather than a patch-level fact.",
         ],
     )
 
@@ -217,6 +345,23 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         report = audit_application_images_core(factory, region or factory.region)
         return report.model_dump()
 
+    async def audit_workspace_images(region: str | None = None) -> dict[str, Any]:
+        """Audit WorkSpaces Personal custom images (state, age, cross-account sharing).
+
+        Lists the account's own WorkSpaces Personal images with state, OS, creation age, and which
+        accounts each image is shared with; flags ERROR-state images, cross-account sharing, and
+        aging images worth refreshing. For WorkSpaces Applications (AppStream) images use
+        audit_application_images. Read-only.
+
+        Args:
+            region: AWS region. Defaults to the server's configured region.
+        """
+        report = await asyncio.to_thread(
+            audit_workspace_images_core, factory, region or factory.region
+        )
+        return report.model_dump()
+
     mcp.add_tool(
         audit_application_images, annotations=read_only("Audit WorkSpaces Applications images")
     )
+    mcp.add_tool(audit_workspace_images, annotations=read_only("Audit WorkSpaces Personal images"))
