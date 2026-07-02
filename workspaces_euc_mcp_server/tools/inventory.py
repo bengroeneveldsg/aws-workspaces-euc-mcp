@@ -128,6 +128,10 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         per-service counts broken down by state, the grand total, and any per-service collection
         errors (e.g. missing permissions). Read-only.
 
+        by_state is the lifecycle/power state (e.g. AVAILABLE = running, STOPPED) — use it for
+        "what is running right now?" questions; use generate_inventory_report for the per-resource
+        list with each desktop's State.
+
         Args:
             region: AWS region to inventory. Defaults to the server's configured region.
         """

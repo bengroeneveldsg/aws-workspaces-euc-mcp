@@ -679,10 +679,15 @@ def register(mcp: Any, factory: ClientFactory) -> None:
     async def analyze_workspace_utilization(
         region: str | None = None, lookback_days: LookbackDays = 14
     ) -> dict[str, Any]:
-        """Classify WorkSpaces Personal desktops as unused / idle / active.
+        """Classify WorkSpaces Personal desktops as unused / idle / active BY USER CONNECTIONS.
 
         Uses the AWS/WorkSpaces UserConnected metric over the window to count active days per
         desktop, returning per-desktop classifications and a rollup. Read-only.
+
+        IMPORTANT: classifications reflect user connections over the lookback window, NOT power
+        state — an AVAILABLE (running) desktop with no logons is "unused", not stopped. For
+        "which WorkSpaces are running/powered on?" use get_euc_inventory_summary or
+        generate_inventory_report (lifecycle State) instead.
 
         Args:
             region: AWS region. Defaults to the server's configured region.

@@ -541,7 +541,9 @@ def register(mcp: Any, factory: ClientFactory) -> None:
 
         Lists WorkSpaces Personal desktops, WorkSpaces Pools, WorkSpaces Applications (formerly
         AppStream 2.0) fleets, and WorkSpaces Secure Browser (formerly WorkSpaces Web) portals with
-        key attributes per resource. Read-only.
+        key attributes per resource — including each desktop's lifecycle State (AVAILABLE =
+        running/powered on, STOPPED, ...), the authoritative answer to "which WorkSpaces are
+        running right now?". Read-only.
 
         Args:
             region: AWS region. Defaults to the server's configured region.
