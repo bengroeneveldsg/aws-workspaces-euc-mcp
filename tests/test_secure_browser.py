@@ -25,6 +25,9 @@ class FakeFactory:
 
 def test_portal_details_resolves_settings():
     web = types.SimpleNamespace(
+        list_identity_providers=lambda **_: {
+            "identityProviders": [{"identityProviderName": "Okta", "identityProviderType": "SAML"}]
+        },
         get_portal=lambda **_: {
             "portal": {
                 "portalArn": "arn:portal/1",
@@ -52,6 +55,12 @@ def test_portal_details_resolves_settings():
                 "securityGroupIds": ["sg-1"],
             }
         },
+        get_browser_settings=lambda **_: {
+            "browserSettings": {
+                "browserPolicy": '{"chromePolicies": {"URLBlocklist": '
+                '{"value": ["*://*.bad.example"]}, "ShowHomeButton": {"value": true}}}'
+            }
+        },
     )
     factory = FakeFactory({consts.SECURE_BROWSER_API: web})
 
@@ -67,6 +76,9 @@ def test_portal_details_resolves_settings():
 
 def test_portal_details_resolves_data_protection_config():
     web = types.SimpleNamespace(
+        list_identity_providers=lambda **_: {
+            "identityProviders": [{"identityProviderName": "Okta", "identityProviderType": "SAML"}]
+        },
         get_portal=lambda **_: {
             "portal": {
                 "portalArn": "arn:portal/2",

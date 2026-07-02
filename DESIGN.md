@@ -4,7 +4,7 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 24 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 27 read-only tools (Tier 0/1) + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
 > guards. Read-only coverage includes image auditing, governance (CloudTrail audit trail + Service
 > Quotas headroom), cost forecast/period comparison, and active CloudWatch alarms. Cross-service
@@ -77,7 +77,8 @@
       reporting.py
       secure_browser.py
       pricing.py       # AWS Price List lookups for $ estimates
-      images.py        # WorkSpaces Applications image / image-builder audit
+      images.py        # Applications + Personal image / builder audits
+      access.py        # WorkSpaces Applications access review (users/stack assignments)
       governance.py    # CloudTrail audit trail + Service Quotas headroom
       lifecycle.py     # Tier 2 (guarded writes)
       destructive.py   # Tier 3 (terminate/rebuild/restore)
@@ -153,7 +154,9 @@ and return a synthesized result, not raw API passthroughs.
 | Tool | Purpose | IAM actions |
 |---|---|---|
 | `audit_security_posture` | Encryption at rest, IP access control groups, directory config, portal policies | `workspaces:Describe*`, `workspaces-web:Get*/List*`, `appstream:Describe*` |
-| `audit_application_images` | WorkSpaces Applications image/image-builder audit — stale base, pinned agent, errored/SHARED images, RUNNING builders | `appstream:DescribeImages`, `appstream:DescribeImageBuilders` |
+| `audit_application_images` | Applications image/image-builder/app-block-builder audit — stale base, pinned agent, errored/SHARED images, RUNNING builders | `appstream:DescribeImages`, `appstream:DescribeImageBuilders`, `appstream:DescribeAppBlockBuilders` |
+| `audit_workspace_images` | Personal custom-image audit — ERROR state, age, cross-account sharing | `workspaces:DescribeWorkspaceImages`, `workspaces:DescribeWorkspaceImagePermissions` |
+| `review_application_access` | Applications access review — user-pool users + per-stack assignments | `appstream:DescribeUsers`, `appstream:DescribeUserStackAssociations`, `appstream:DescribeStacks` |
 | `list_unused_resources` | Idle desktops / empty fleets / orphaned resources | describes + `cloudwatch:GetMetricData` |
 
 **Governance** (cross-service)
@@ -161,6 +164,7 @@ and return a synthesized result, not raw API passthroughs.
 |---|---|---|
 | `get_euc_audit_trail` | "Who changed what" — recent EUC management events (mutations by default), 90-day CloudTrail history | `cloudtrail:LookupEvents` |
 | `get_euc_service_quotas` | Quota limits + usage headroom per EUC service (capacity planning) | `servicequotas:ListServiceQuotas`, `servicequotas:GetServiceQuota`, `cloudwatch:GetMetricData` |
+| `get_euc_account_posture` | Account posture: dedicated tenancy/BYOL, client properties, connection aliases | `workspaces:DescribeAccount`/`DescribeAccountModifications`/`DescribeClientProperties`/`DescribeConnectionAliases` |
 
 ### Phase 2 — Guarded lifecycle (writes; Tier 2, `--enable-writes`)
 All support `dry_run`, return a plan + blast-radius before acting, and honor `--max-bulk-targets`.

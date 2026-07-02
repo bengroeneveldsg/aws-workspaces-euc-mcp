@@ -5,6 +5,46 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-07-03
+
+API-coverage expansion: a systematic audit of all four EUC service APIs (we used 16 of 83 read
+operations) turned into six themes of new capability, all validated live.
+
+### Added
+- **Live sessions everywhere**: `get_pool_session_history` and `diagnose_pool` now show who is
+  connected to a Pool RIGHT NOW (`DescribeWorkspacesPoolSessions`); `get_application_fleet_usage`
+  shows who is streaming from a fleet right now (`DescribeSessions` via associated stacks) — the
+  same live-vs-historic split Secure Browser already had.
+- **`audit_workspace_images`** — WorkSpaces Personal custom-image audit: ERROR states, aging
+  images, and cross-account sharing (via `DescribeWorkspaceImages`/`DescribeWorkspaceImagePermissions`).
+- **`review_application_access`** — who has access to WorkSpaces Applications: user-pool users and
+  per-stack user assignments (`DescribeUsers`/`DescribeUserStackAssociations`).
+- **`get_euc_account_posture`** — dedicated tenancy (BYOL) status + management CIDR, recent account
+  modifications, per-directory client properties, and cross-region connection aliases.
+- `generate_inventory_report`: desktops now include the **bundle name** (`DescribeWorkspaceBundles`)
+  and an optional **`include_tags`** parameter adds resource tags across desktops/pools/fleets/
+  stacks/portals.
+- `audit_application_images`: **app-block builders** are now audited too — RUNNING ones bill hourly
+  like image builders.
+
+### Changed
+- `audit_security_posture` goes deeper: flags **0.0.0.0/0 rules inside IP access control groups**,
+  Secure Browser portals **without IP restrictions** or **without session logging**, and
+  WorkSpaces Applications **usage reporting disabled**.
+- `get_secure_browser_portal_details` now resolves the **Chrome browser policy** (names + URL
+  allow/block lists), **IP access ranges**, **identity providers**, and **session-logging status**.
+- `rebuild_workspaces`/`restore_workspace` dry-runs now state **the last snapshot time per target**
+  (`DescribeWorkspaceSnapshots`), making the data-loss window concrete;
+  `diagnose_workspace_connectivity` surfaces the same snapshot recency.
+
+### IAM
+New read-only actions added to every tier: `workspaces:DescribeIpGroups`/`DescribeWorkspaceSnapshots`/
+`DescribeWorkspaceImages`/`DescribeWorkspaceImagePermissions`/`DescribeAccount`/
+`DescribeAccountModifications`/`DescribeClientProperties`/`DescribeConnectionAliases`;
+`appstream:DescribeUsageReportSubscriptions`/`DescribeAppBlockBuilders`/`DescribeUsers`/
+`DescribeUserStackAssociations`/`ListTagsForResource`; `workspaces-web:GetBrowserSettings`/
+`GetIpAccessSettings`/`ListIdentityProviders`/`ListTagsForResource`.
+
 ## [0.1.12] - 2026-07-03
 
 ### Fixed

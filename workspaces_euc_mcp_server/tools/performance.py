@@ -19,6 +19,7 @@ from ..clients import ClientFactory
 from ..models import (
     FleetMetricSeries,
     FleetUsage,
+    LiveSession,
     MetricStat,
     PerformanceReport,
     Recommendation,
@@ -371,6 +372,10 @@ def get_application_fleet_usage_core(
     period_hours: PeriodHours = 24,
 ) -> FleetUsage:
     errors: list[ServiceError] = []
+    # LIVE: who is streaming right now (DescribeSessions via associated stacks).
+    appstream = factory.client(consts.APPSTREAM_API, region=region)
+    live = fleet_live_sessions(appstream, fleet_name, errors)
+
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
     metrics = try_call(
         errors,
@@ -379,12 +384,16 @@ def get_application_fleet_usage_core(
         lambda: _fetch_fleet_usage(cloudwatch, fleet_name, lookback_days, period_hours),
         default={},
     )
+    history = _summarize_fleet_usage(metrics or {}, lookback_days)
+    summary = f"{len(live)} live session(s) right now. {history or ''}".strip()
     return FleetUsage(
         fleet_name=fleet_name,
         lookback_days=lookback_days,
         period_hours=period_hours,
+        active_session_count=len(live),
+        active_sessions=live,
         metrics=metrics or {},
-        summary=_summarize_fleet_usage(metrics or {}, lookback_days),
+        summary=summary,
         errors=errors,
     )
 
@@ -462,6 +471,82 @@ def _summarize_pool_session_history(
     return None
 
 
+def _iso(value: Any) -> str | None:
+    return value.isoformat() if hasattr(value, "isoformat") else None
+
+
+def pool_live_sessions(
+    workspaces: Any, pool_id: str, errors: list[ServiceError]
+) -> list[LiveSession]:
+    """Sessions on a Pool RIGHT NOW, live from DescribeWorkspacesPoolSessions (like the console)."""
+    raw = (
+        try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_POOLS,
+            "DescribeWorkspacesPoolSessions",
+            lambda: paginate(
+                workspaces.describe_workspaces_pool_sessions, "Sessions", PoolId=pool_id
+            ),
+            default=[],
+        )
+        or []
+    )
+    return [
+        LiveSession(
+            session_id=s.get("SessionId", ""),
+            user=s.get("UserId"),
+            connection_state=s.get("ConnectionState"),
+            start_time=_iso(s.get("StartTime")),
+        )
+        for s in raw
+    ]
+
+
+def fleet_live_sessions(
+    appstream: Any, fleet_name: str, errors: list[ServiceError]
+) -> list[LiveSession]:
+    """Sessions streaming from a fleet RIGHT NOW, via its associated stacks + DescribeSessions."""
+    stacks = (
+        try_call(
+            errors,
+            consts.PRODUCT_WORKSPACES_APPLICATIONS,
+            "ListAssociatedStacks",
+            lambda: paginate(appstream.list_associated_stacks, "Names", FleetName=fleet_name),
+            default=[],
+        )
+        or []
+    )
+    sessions: list[LiveSession] = []
+    for stack in stacks:
+        raw = (
+            try_call(
+                errors,
+                consts.PRODUCT_WORKSPACES_APPLICATIONS,
+                "DescribeSessions",
+                lambda stack=stack: paginate(
+                    appstream.describe_sessions,
+                    "Sessions",
+                    StackName=stack,
+                    FleetName=fleet_name,
+                ),
+                default=[],
+            )
+            or []
+        )
+        sessions.extend(
+            LiveSession(
+                session_id=s.get("Id", ""),
+                user=s.get("UserId"),
+                state=s.get("State"),
+                connection_state=s.get("ConnectionState"),
+                start_time=_iso(s.get("StartTime")),
+                stack_name=stack,
+            )
+            for s in raw
+        )
+    return sessions
+
+
 def get_pool_session_history_core(
     factory: ClientFactory,
     pool_id: str,
@@ -470,6 +555,10 @@ def get_pool_session_history_core(
     period_hours: PeriodHours = 24,
 ) -> UsageHistory:
     errors: list[ServiceError] = []
+    # LIVE: current sessions from the real-time API; CloudWatch below is historic-only.
+    workspaces = factory.client(consts.WORKSPACES_API, region=region)
+    live = pool_live_sessions(workspaces, pool_id, errors)
+
     cloudwatch = factory.client(consts.CLOUDWATCH_API, region=region)
     metrics = try_call(
         errors,
@@ -486,13 +575,17 @@ def get_pool_session_history_core(
         ),
         default={},
     )
+    history = _summarize_pool_session_history(metrics or {}, lookback_days)
+    summary = f"{len(live)} live session(s) right now. {history or ''}".strip()
     return UsageHistory(
         target_type=consts.PRODUCT_WORKSPACES_POOLS,
         target_id=pool_id,
         lookback_days=lookback_days,
         period_hours=period_hours,
+        active_session_count=len(live),
+        active_sessions=live,
         metrics=metrics or {},
-        summary=_summarize_pool_session_history(metrics or {}, lookback_days),
+        summary=summary,
         errors=errors,
     )
 

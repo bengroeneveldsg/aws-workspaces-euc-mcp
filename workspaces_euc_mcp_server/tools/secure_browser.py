@@ -14,6 +14,7 @@ Brings Secure Browser to parity with the other services:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from .. import consts
@@ -83,6 +84,58 @@ def get_secure_browser_portal_details_core(
             if key in (ns or {}):
                 network[key] = ns[key]
 
+    browser_policy: dict[str, object] = {}
+    if portal.get("browserSettingsArn"):
+        bs = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "GetBrowserSettings",
+            lambda: web.get_browser_settings(browserSettingsArn=portal["browserSettingsArn"]).get(
+                "browserSettings", {}
+            ),
+            default={},
+        )
+        browser_policy = _summarize_browser_policy((bs or {}).get("browserPolicy"))
+
+    ip_access: dict[str, object] = {}
+    if portal.get("ipAccessSettingsArn"):
+        ips = try_call(
+            errors,
+            consts.PRODUCT_SECURE_BROWSER,
+            "GetIpAccessSettings",
+            lambda: web.get_ip_access_settings(
+                ipAccessSettingsArn=portal["ipAccessSettingsArn"]
+            ).get("ipAccessSettings", {}),
+            default={},
+        )
+        rules = (ips or {}).get("ipRules") or []
+        ip_access = {
+            "display_name": (ips or {}).get("displayName"),
+            "allowed_ranges": [r.get("ipRange") for r in rules if r.get("ipRange")],
+        }
+
+    identity_providers: list[dict[str, object]] = []
+    idps = try_call(
+        errors,
+        consts.PRODUCT_SECURE_BROWSER,
+        "ListIdentityProviders",
+        lambda: paginate(
+            web.list_identity_providers,
+            "identityProviders",
+            pagination_in="nextToken",
+            pagination_out="nextToken",
+            portalArn=portal_arn,
+        ),
+        default=[],
+    )
+    identity_providers = [
+        {
+            "name": i.get("identityProviderName"),
+            "type": i.get("identityProviderType"),
+        }
+        for i in (idps or [])
+    ]
+
     data_protection: dict[str, object] = {}
     if portal.get("dataProtectionSettingsArn"):
         dps = try_call(
@@ -104,10 +157,38 @@ def get_secure_browser_portal_details_core(
         user_settings=user_settings,
         network=network,
         has_browser_policy=bool(portal.get("browserSettingsArn")),
+        browser_policy=browser_policy,
+        ip_access=ip_access,
+        has_session_logging=bool(
+            portal.get("sessionLoggerArn") or portal.get("userAccessLoggingSettingsArn")
+        ),
+        identity_providers=identity_providers,
         has_data_protection=bool(portal.get("dataProtectionSettingsArn")),
         data_protection=data_protection,
         errors=errors,
     )
+
+
+def _summarize_browser_policy(policy_json: Any) -> dict[str, Any]:
+    """Reduce a Chrome browser-policy JSON string to the admin-relevant summary."""
+    if not policy_json:
+        return {}
+    try:
+        policy = json.loads(policy_json) if isinstance(policy_json, str) else policy_json
+    except (ValueError, TypeError):
+        return {"parse_error": "browserPolicy is not valid JSON"}
+    chrome = policy.get("chromePolicies") or {}
+
+    def _value(name: str) -> Any:
+        entry = chrome.get(name)
+        return entry.get("value") if isinstance(entry, dict) else None
+
+    return {
+        "policy_count": len(chrome),
+        "policy_names": sorted(chrome),
+        "url_allowlist": _value("URLAllowlist") or _value("URLWhitelist"),
+        "url_blocklist": _value("URLBlocklist") or _value("URLBlacklist"),
+    }
 
 
 def _summarize_data_protection(dps: dict[str, Any]) -> dict[str, Any]:

@@ -14,6 +14,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -301,6 +302,104 @@ def get_euc_service_quotas_core(
     )
 
 
+# --------------------------------------------------------------------------- account posture
+
+
+def get_euc_account_posture_core(factory: ClientFactory, region: str | None) -> dict[str, Any]:
+    """Account-level WorkSpaces configuration: tenancy, client properties, connection aliases."""
+    errors: list[ServiceError] = []
+    workspaces = factory.client(consts.WORKSPACES_API, region=region)
+
+    account = try_call(
+        errors,
+        "Amazon WorkSpaces",
+        "DescribeAccount",
+        lambda: workspaces.describe_account(),
+        default={},
+    )
+
+    modifications = (
+        try_call(
+            errors,
+            "Amazon WorkSpaces",
+            "DescribeAccountModifications",
+            lambda: paginate(workspaces.describe_account_modifications, "AccountModifications"),
+            default=[],
+        )
+        or []
+    )
+
+    directories = (
+        try_call(
+            errors,
+            "Amazon WorkSpaces",
+            "DescribeWorkspaceDirectories",
+            lambda: paginate(workspaces.describe_workspace_directories, "Directories"),
+            default=[],
+        )
+        or []
+    )
+    directory_ids = [d.get("DirectoryId", "") for d in directories if d.get("DirectoryId")]
+    client_properties: dict[str, Any] = {}
+    if directory_ids:
+        props = (
+            try_call(
+                errors,
+                "Amazon WorkSpaces",
+                "DescribeClientProperties",
+                lambda: workspaces.describe_client_properties(ResourceIds=directory_ids).get(
+                    "ClientPropertiesList", []
+                ),
+                default=[],
+            )
+            or []
+        )
+        for entry in props:
+            client_properties[entry.get("ResourceId", "")] = entry.get("ClientProperties", {})
+
+    aliases = (
+        try_call(
+            errors,
+            "Amazon WorkSpaces",
+            "DescribeConnectionAliases",
+            lambda: paginate(workspaces.describe_connection_aliases, "ConnectionAliases"),
+            default=[],
+        )
+        or []
+    )
+
+    recent_mods = [
+        {
+            "state": m.get("ModificationState"),
+            "tenancy": m.get("DedicatedTenancySupport"),
+            "started": str(m.get("StartTime")) if m.get("StartTime") else None,
+            "error": m.get("ErrorMessage"),
+        }
+        for m in modifications[:5]
+    ]
+    return {
+        "region": region,
+        "dedicated_tenancy_support": account.get("DedicatedTenancySupport"),
+        "dedicated_tenancy_management_cidr": account.get("DedicatedTenancyManagementCidrRange"),
+        "recent_account_modifications": recent_mods,
+        "client_properties_by_directory": client_properties,
+        "connection_aliases": [
+            {
+                "alias_id": a.get("AliasId"),
+                "connection_string": a.get("ConnectionString"),
+                "state": a.get("State"),
+            }
+            for a in aliases
+        ],
+        "errors": [e.model_dump() for e in errors],
+        "notes": [
+            "Dedicated tenancy (BYOL) requires account enablement; connection aliases support "
+            "cross-region redirection; client properties control the WorkSpaces client "
+            "experience (e.g. reconnect) per directory.",
+        ],
+    }
+
+
 # --------------------------------------------------------------------------- registration
 
 
@@ -357,5 +456,20 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         )
         return report.model_dump()
 
+    async def get_euc_account_posture(region: str | None = None) -> dict[str, Any]:
+        """Report account-level WorkSpaces configuration posture.
+
+        Returns dedicated-tenancy (BYOL) status and management CIDR, recent account modifications,
+        per-directory client properties (e.g. reconnect), and cross-region connection aliases.
+        Read-only.
+
+        Args:
+            region: AWS region. Defaults to the server's configured region.
+        """
+        return await asyncio.to_thread(
+            get_euc_account_posture_core, factory, region or factory.region
+        )
+
     mcp.add_tool(get_euc_audit_trail, annotations=read_only("EUC audit trail (CloudTrail)"))
+    mcp.add_tool(get_euc_account_posture, annotations=read_only("EUC account posture"))
     mcp.add_tool(get_euc_service_quotas, annotations=read_only("EUC service quotas / headroom"))

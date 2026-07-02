@@ -40,7 +40,7 @@ diagnosis, a right-sizing recommendation) instead of returning raw API output. S
 
 ## Status
 
-**Shipped** (published to PyPI + GHCR) — **24 read-only tools** (Tiers 0–1) plus opt-in **10 write**
+**Shipped** (published to PyPI + GHCR) — **27 read-only tools** (Tiers 0–1) plus opt-in **10 write**
 (Tier 2) and **3 destructive** (Tier 3) tools. Cross-service tools collect from all EUC services
 **concurrently**, and tool parameters are bounds-validated at the MCP layer. The read-only
 inventory, troubleshooting, cost, audit, and governance tools:
@@ -50,25 +50,28 @@ inventory, troubleshooting, cost, audit, and governance tools:
 | `get_euc_inventory_summary` | Cross-service inventory for a region (incl. **WorkSpaces Core Managed Instances**): per-service counts by state, grand total, and any per-service collection errors. |
 | `diagnose_workspace_connectivity` | Why a WorkSpaces Personal desktop may be unreachable — correlates WorkSpace state, connection status, directory health, and CloudWatch connection metrics into a ranked diagnosis. |
 | `diagnose_application_fleet` | A WorkSpaces Applications fleet's health and capacity — fleet state, fleet errors, compute capacity, auto-scaling activity, and insufficient-capacity errors. |
-| `diagnose_pool` | A WorkSpaces Pool's health — state, pool errors, user-session capacity, backing directory health, and session-utilization. |
-| `get_application_fleet_usage` | A WorkSpaces Applications fleet's **usage history** — AWS/AppStream capacity/utilization time-series over a window, with a plain-language summary (e.g. idle running capacity) (Tier 0). |
+| `diagnose_pool` | A WorkSpaces Pool's health — state, pool errors, user-session capacity, backing directory health, session-utilization, and **live session count right now**. |
+| `get_application_fleet_usage` | A WorkSpaces Applications fleet's **live sessions right now** (who is streaming, via DescribeSessions) plus AWS/AppStream capacity/utilization **history** over a window (Tier 0). |
 | `check_directory_health` | Registration state, AWS Directory Service stage, and **registration properties** (target **OU**, custom security group, local-admin / internet-access / maintenance-mode flags) for one or all WorkSpaces-registered directories. |
 | `analyze_workspace_utilization` | Classifies WorkSpaces Personal desktops as unused / idle / active from the `UserConnected` metric (Tier 1). |
 | `recommend_running_mode` | Flags AlwaysOn desktops with low usage as AutoStop candidates, with an **estimated $/mo saving** where the bundle price can be matched (Tier 1). |
 | `get_workspace_performance` | Native CPU / memory / disk / GPU / latency / uptime metrics per desktop from `AWS/WorkSpaces` — no CloudWatch agent (Tier 0). |
 | `get_workspace_connection_history` | A desktop's connection/session **history** (UserConnected + connection attempts/failures) over a window, with a summary (Tier 0). |
-| `get_pool_session_history` | A WorkSpaces Pool's user-**session history** (active/available/utilization capacity time-series), flags idle pool capacity (Tier 0). |
+| `get_pool_session_history` | A WorkSpaces Pool's **live sessions right now** (who is connected) plus user-session capacity **history**; flags idle pool capacity (Tier 0). |
 | `recommend_bundle_rightsizing` | Suggests smaller/larger compute types from CPU & memory headroom (general families; graphics excluded) (Tier 0). |
 | `get_euc_cost_summary` | EUC spend by service over a window (or an explicit `start_date`/`end_date` calendar month) via Cost Explorer, account-wide. Services are matched by keyword so naming variants (e.g. AppStream 2.0) aren't dropped. Cost Explorer bills WorkSpaces Personal/Pools/Core as one "Amazon WorkSpaces" line, so the tool **splits it into Personal / Pools / Core via USAGE_TYPE** (`workspaces_breakdown`); also returns a daily/monthly time series (`by_period`) for charts (Tier 1). |
-| `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes (Tier 0). |
-| `audit_security_posture` | Cross-service: flags unencrypted WorkSpace volumes, directories without IP access control groups, and **Secure Browser portals / Applications stacks that allow data egress** (clipboard/download/print) (Tier 0). |
-| `audit_application_images` | Audits WorkSpaces Applications (AppStream 2.0) **images and image builders** — flags stale base images (unpatched OS), pinned/old AppStream agents, non-AVAILABLE/errored images, SHARED cross-account visibility, and **image builders left RUNNING** (cost + admin surface) (Tier 0). |
+| `generate_inventory_report` | Detailed per-resource inventory (desktops **with assigned user / computer name / IP / bundle name**, pools, fleets, **stacks + their associated fleets**, portals) with key attributes; optional `include_tags` adds resource tags for ownership/cost-allocation (Tier 0). |
+| `audit_security_posture` | Cross-service: flags unencrypted WorkSpace volumes, directories without IP access control groups, **0.0.0.0/0 rules inside IP groups**, Secure Browser portals **without IP restrictions or session logging**, portals/stacks that allow **data egress**, and Applications usage reporting disabled (Tier 0). |
+| `audit_application_images` | Audits WorkSpaces Applications (AppStream 2.0) **images, image builders, and app-block builders** — stale base images, pinned/old agents, errored/SHARED images, and **builders left RUNNING** (billing hourly) (Tier 0). |
+| `audit_workspace_images` | Audits **WorkSpaces Personal custom images** — ERROR states, aging images worth refreshing, and **cross-account sharing** (which accounts each image is shared with) (Tier 0). |
+| `review_application_access` | **Access review** for WorkSpaces Applications — user-pool users (status/enabled) and **which users are assigned to each stack** (SAML-federated users noted as IdP-managed) (Tier 0). |
 | `get_euc_cost_forecast` | **Forecast upcoming EUC spend** via Cost Explorer's forecasting model — mean total + per-period values with an 80% prediction interval, filtered to the EUC services discovered in recent actual spend (Tier 1). |
 | `compare_euc_costs` | **"Why did my cost change?"** — compares two windows (defaults to the preceding equal-length window), returning totals, per-service deltas, and the top **usage-type-level drivers** of the change, with WorkSpaces usage bucketed into Personal/Pools/Core (Tier 1). |
 | `get_euc_active_alarms` | **CloudWatch alarms currently firing** on EUC resources (AWS/WorkSpaces, AWS/AppStream, AWS/WorkSpacesWeb namespaces) — metric, dimensions, reason, and since-when; auto-scaling policy alarms are flagged as expected rather than incidents (Tier 0). |
 | `get_euc_audit_trail` | **"Who changed what"** — recent EUC management events from CloudTrail (last 90 days, no trail required) across all services; mutations-only by default, flags destructive actions and errors (e.g. AccessDenied) (Tier 0). |
 | `get_euc_service_quotas` | **Service-quota limits + usage headroom** per EUC service; pairs limits with current usage (where AWS publishes a usage metric) to flag quotas approaching their limit — capacity planning (Tier 0). |
-| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download controls + timeouts), network, attached policies, and — when configured — the **data-protection redaction config** (which built-in/custom patterns are redacted, confidence level, enforced/exempt URLs) (Tier 0). |
+| `get_euc_account_posture` | Account-level WorkSpaces configuration — **dedicated tenancy (BYOL)** status + management CIDR, recent account modifications, per-directory **client properties**, and **cross-region connection aliases** (Tier 0). |
+| `get_secure_browser_portal_details` | Resolves a Secure Browser portal's user settings (clipboard/print/download + timeouts), network, the **Chrome browser policy** (policy names + URL allow/block lists), **IP access ranges**, **identity providers**, **session-logging status**, and the **data-protection redaction config** (Tier 0). |
 | `get_secure_browser_portal_usage` | A Secure Browser portal's **current active sessions** (live, via `ListSessions` — same as the console) plus **historic** `AWS/WorkSpacesWeb` metrics over a window (CloudWatch is historic-only; idle portals publish none) (Tier 0). |
 | `list_unused_resources` | Unused WorkSpaces desktops and stopped/zero-capacity fleets worth reclaiming (Tier 0). |
 
@@ -100,8 +103,8 @@ dry-run default and blast-radius cap, each execution requires an **exact typed a
 | Tool | Description | Acknowledge |
 |------|-------------|-------------|
 | `terminate_workspaces` | **Permanently delete** desktops (irreversible). | `"TERMINATE"` |
-| `rebuild_workspaces` | Reset root volume to bundle; user volume from last snapshot. | `"REBUILD"` |
-| `restore_workspace` | Restore a desktop from its last snapshot. | `"RESTORE"` |
+| `rebuild_workspaces` | Reset root volume to bundle; user volume from last snapshot. Dry-run shows **the last snapshot time per target** so the data-loss window is concrete. | `"REBUILD"` |
+| `restore_workspace` | Restore a desktop from its last snapshot. Dry-run shows **the last snapshot time** so the data-loss window is concrete. | `"RESTORE"` |
 
 Example: `terminate_workspaces(workspace_ids=[...], confirm=true, acknowledge="TERMINATE")`.
 Without the exact phrase the call is **refused** and nothing changes. See [`DESIGN.md`](DESIGN.md).
