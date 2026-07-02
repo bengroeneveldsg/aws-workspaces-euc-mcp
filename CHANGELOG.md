@@ -5,6 +5,30 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-07-03
+
+### Added
+- **`generate_euc_health_report`** — the one-call estate report: inventory, firing alarms
+  (auto-scaling alarms excluded), 30-day cost + forecast + AlwaysOn→AutoStop savings, security
+  posture, image/builder findings, and quota headroom, collected **concurrently** and returned as
+  structured sections plus **ready-to-send markdown** — the building block for scheduled/weekly
+  estate reports. Live: full report in ~8s.
+- **`export_inventory_report_csv`** — writes the FULL per-resource inventory (no cap) to a local
+  CSV and returns the path/row count, so estates with hundreds or thousands of devices get a
+  spreadsheet instead of an oversized inline answer. Reads AWS only; the only write is the local
+  file.
+- **Large-estate handling** on `generate_inventory_report`: per-section cap
+  (`max_resources_per_service`, default 100) with `total_count` + `truncated` markers, a
+  `services` filter to narrow scope, and guidance steering assistants to summarize first / filter /
+  export on big estates (also added to the server instructions).
+- `get_secure_browser_portal_details` browser policy now includes **per-policy values**
+  (size-guarded: long lists/strings truncated with counts) — e.g. force-installed extensions and
+  proxy configuration, not just policy names.
+
+### Changed
+- Health-report savings line distinguishes "no candidates" from "candidates whose bundles have no
+  Price List match" so a null estimate is never read as "no opportunity".
+
 ## [0.1.13] - 2026-07-03
 
 API-coverage expansion: a systematic audit of all four EUC service APIs (we used 16 of 83 read

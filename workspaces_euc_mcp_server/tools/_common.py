@@ -34,6 +34,8 @@ MaxEvents = Annotated[int, Field(ge=1, le=500)]
 """Result cap for event listings."""
 Percentage = Annotated[float, Field(ge=1, le=100)]
 """A percentage threshold."""
+MaxResources = Annotated[int, Field(ge=1, le=10_000)]
+"""Per-section resource cap for inventory-style listings."""
 ForecastDays = Annotated[int, Field(ge=1, le=365)]
 """How far ahead to forecast, in days (Cost Explorer supports up to ~12 months)."""
 CapacityCount = Annotated[int, Field(ge=0, le=10_000)]

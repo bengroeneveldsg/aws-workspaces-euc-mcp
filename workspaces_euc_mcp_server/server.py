@@ -22,6 +22,7 @@ from .tools import (
     destructive,
     diagnostics,
     governance,
+    health,
     images,
     inventory,
     lifecycle,
@@ -70,6 +71,7 @@ def create_server(
     images.register(mcp, factory)
     governance.register(mcp, factory)
     access.register(mcp, factory)
+    health.register(mcp, factory)
 
     if enable_writes:
         logger.info(

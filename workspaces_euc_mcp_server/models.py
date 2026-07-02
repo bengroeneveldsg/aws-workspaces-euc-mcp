@@ -453,6 +453,11 @@ class ResourceRecord(BaseModel):
 class InventoryReportSection(BaseModel):
     service: str
     resource_type: str
+    total_count: int = Field(default=0, description="Total resources found (before any cap).")
+    truncated: bool = Field(
+        default=False,
+        description="True when the resources list was capped; total_count has the real number.",
+    )
     resources: list[ResourceRecord] = Field(default_factory=list)
 
 
@@ -463,6 +468,18 @@ class InventoryReport(BaseModel):
     total_resources: int = 0
     sections: list[InventoryReportSection] = Field(default_factory=list)
     errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class CsvExportResult(BaseModel):
+    """Result of exporting the inventory to a local CSV file."""
+
+    path: str
+    rows: int = 0
+    columns: int = 0
+    total_resources: int = 0
+    errors: list[ServiceError] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
 
 
 class AuditReport(BaseModel):
