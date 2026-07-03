@@ -227,6 +227,14 @@ class CostForecast(BaseModel):
         default_factory=list,
         description="Exact Cost Explorer SERVICE names the forecast was filtered to.",
     )
+    recent_7d_daily_avg: float | None = Field(
+        default=None,
+        description="Average daily EUC spend over the last 7 days of actuals (run-rate context).",
+    )
+    trailing_30d_daily_avg: float | None = Field(
+        default=None,
+        description="Average daily EUC spend over the trailing 30 days of actuals.",
+    )
     errors: list[ServiceError] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
 
