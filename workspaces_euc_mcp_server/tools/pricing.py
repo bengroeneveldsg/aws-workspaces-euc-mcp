@@ -281,6 +281,42 @@ def appstream_hourly_price(
     return price
 
 
+def appstream_stopped_instance_fee(factory: ClientFactory, region: str | None) -> float | None:
+    """$/hour for a provisioned-but-idle On-Demand fleet instance (instance-type-agnostic SKU)."""
+    location = _REGION_LOCATIONS.get(region or "")
+    if not location:
+        return None
+    key = ("appstream-stopped", location)
+    if key in _generic_cache:
+        return _generic_cache[key]  # type: ignore[return-value]
+    fee: float | None = None
+    try:
+        pricing = factory.client("pricing", region=_PRICING_REGION)
+        resp = pricing.get_products(
+            ServiceCode="AmazonAppStream",
+            Filters=[
+                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+                {
+                    "Type": "TERM_MATCH",
+                    "Field": "instanceFunction",
+                    "Value": "StoppedFleetInstance",
+                },
+            ],
+            MaxResults=10,
+        )
+        for raw in resp.get("PriceList", []):
+            product = json.loads(raw)
+            for term in product.get("terms", {}).get("OnDemand", {}).values():
+                for pd in term["priceDimensions"].values():
+                    usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                    if usd > 0 and (pd.get("unit") or "").lower().startswith("hour"):
+                        fee = usd
+    except Exception as exc:  # best-effort; never fail the caller
+        logger.warning("Stopped-instance fee lookup failed for {}: {}", location, exc)
+    _generic_cache[key] = fee
+    return fee
+
+
 def secure_browser_mau_prices(factory: ClientFactory, region: str | None) -> dict[str, float]:
     """Portal instanceType -> $/monthly-active-user for the region."""
     location = _REGION_LOCATIONS.get(region or "")
@@ -384,7 +420,9 @@ def register(mcp, factory: ClientFactory) -> None:
         - applications: $/hour for a WorkSpaces Applications (AppStream) instance — needs
           instance_type (e.g. stream.standard.large), instance_function, and the platform
           (WINDOWS_SERVER_* = included license; WINDOWS_10/11 = BYOL, cheaper). Also returns
-          derived $/day and $/month (730 h).
+          derived $/day and $/month (730 h) and on_demand_stopped_hourly_usd. The 24x7 figures
+          apply to ALWAYS_ON fleets and RUNNING builders only; ON_DEMAND fleets bill the full
+          rate only while streaming plus the stopped-instance fee while provisioned idle.
         - secure-browser: $/monthly-active-user per portal tier (standard.regular/large/xlarge).
         - core: managed-instance fee SKUs for an instance type — one SKU per billing option
           (hourly vs monthly). The account bills whichever billing option it is configured for;
@@ -423,6 +461,7 @@ def register(mcp, factory: ClientFactory) -> None:
                 hourly = appstream_hourly_price(
                     factory, target_region, instance_type, instance_function, platform
                 )
+                stopped_fee = appstream_stopped_instance_fee(factory, target_region)
                 base.update(
                     {
                         "instance_type": instance_type,
@@ -431,7 +470,19 @@ def register(mcp, factory: ClientFactory) -> None:
                         "hourly_usd": hourly,
                         "daily_usd_24x7": round(hourly * 24, 2) if hourly else None,
                         "monthly_usd_24x7": round(hourly * 730, 2) if hourly else None,
+                        "on_demand_stopped_hourly_usd": stopped_fee,
                     }
+                )
+                base["notes"].append(
+                    "BILLING MODEL BY FLEET TYPE — do not apply the 24x7 figures blindly: "
+                    "ALWAYS_ON fleets bill hourly_usd 24/7 per provisioned instance "
+                    "(monthly_usd_24x7 applies). ON_DEMAND fleets bill hourly_usd ONLY while a "
+                    "user is streaming; provisioned-but-idle instances bill "
+                    "on_demand_stopped_hourly_usd instead (~10x cheaper). ELASTIC fleets bill "
+                    "streaming hours only. Image/app-block builders bill hourly_usd the whole "
+                    "time they are RUNNING (24x7 figures apply). For actuals use "
+                    "get_euc_cost_summary, and never extrapolate a full month for a resource "
+                    "created mid-month."
                 )
                 if hourly is None:
                     base["notes"].append(

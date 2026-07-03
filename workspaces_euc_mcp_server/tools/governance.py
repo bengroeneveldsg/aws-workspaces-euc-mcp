@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -32,6 +33,8 @@ from ..models import (
 from ._common import LookbackDays, MaxEvents, Percentage, paginate, read_only, try_call
 
 _CLOUDTRAIL_MAX_LOOKBACK = 90  # LookupEvents only retains 90 days.
+_SWEEP_PAGE_BUDGET = 12  # account-wide sweep: up to 12 pages (600 events) before giving up
+_LOOKUP_PACING_SECONDS = 0.51  # LookupEvents is throttled at 2 requests/second per region
 
 
 # --------------------------------------------------------------------------- audit trail
@@ -91,6 +94,65 @@ def _audit_findings(events: list[AuditEvent]) -> list[GovernanceFinding]:
     return findings
 
 
+def _event_sort_key(raw: dict[str, Any]) -> str:
+    t = raw.get("EventTime")
+    return t.isoformat() if isinstance(t, datetime) else str(t or "")
+
+
+def _lookup_paged(
+    trail: Any,
+    attr: dict[str, str],
+    start: datetime,
+    end: datetime,
+    sources: set[str],
+    stop_after_euc: int,
+    page_budget: int,
+    errors: list[ServiceError],
+) -> tuple[list[dict[str, Any]], datetime | None, bool]:
+    """One paged LookupEvents scan for a single attribute (its single-attribute limit).
+
+    Returns (matching raw events, oldest event time SEEN pre-filter, window fully covered).
+    Pages are paced because LookupEvents throttles at 2 requests/second account-wide.
+    """
+    matched: list[dict[str, Any]] = []
+    oldest: datetime | None = None
+    covered = False
+    page_token: str | None = None
+    for page in range(page_budget):
+        if page:
+            time.sleep(_LOOKUP_PACING_SECONDS)
+        kwargs: dict[str, Any] = {
+            "LookupAttributes": [attr],
+            "StartTime": start,
+            "EndTime": end,
+            "MaxResults": 50,
+        }
+        if page_token:
+            kwargs["NextToken"] = page_token
+        resp = try_call(
+            errors,
+            "AWS CloudTrail",
+            "LookupEvents",
+            lambda kwargs=kwargs: trail.lookup_events(**kwargs),
+            default={},
+        )
+        if not resp:
+            break
+        for e in resp.get("Events", []):
+            t = e.get("EventTime")
+            if isinstance(t, datetime) and (oldest is None or t < oldest):
+                oldest = t
+            if e.get("EventSource", "") in sources:
+                matched.append(e)
+        page_token = resp.get("NextToken")
+        if not page_token:
+            covered = True  # CloudTrail exhausted the window — nothing older exists.
+            break
+        if len(matched) >= stop_after_euc:
+            break
+    return matched, oldest, covered
+
+
 def get_euc_audit_trail_core(
     factory: ClientFactory,
     region: str | None,
@@ -108,43 +170,84 @@ def get_euc_audit_trail_core(
     end = datetime.now(UTC)
     start = end - timedelta(days=lookback_days)
 
-    # Mutations-only (default): one ReadOnly=false sweep, then keep EUC sources in code.
-    # include_read_only: one sweep per EventSource (LookupEvents allows a single attribute).
-    lookups: list[dict[str, str]]
-    if include_read_only:
-        lookups = [{"AttributeKey": "EventSource", "AttributeValue": s} for s in sources]
-    else:
-        lookups = [{"AttributeKey": "ReadOnly", "AttributeValue": "false"}]
-
     raw_events: list[dict[str, Any]] = []
-    for attr in lookups:
-        page_token: str | None = None
-        while len(raw_events) < max_events:
-            kwargs: dict[str, Any] = {
-                "LookupAttributes": [attr],
-                "StartTime": start,
-                "EndTime": end,
-                "MaxResults": min(50, max_events - len(raw_events)),
-            }
-            if page_token:
-                kwargs["NextToken"] = page_token
-            resp = try_call(
-                errors,
-                "AWS CloudTrail",
-                "LookupEvents",
-                lambda kwargs=kwargs: trail.lookup_events(**kwargs),
-                default={},
-            )
-            if not resp:
-                break
-            raw_events.extend(resp.get("Events", []))
-            page_token = resp.get("NextToken")
-            if not page_token:
-                break
-
-    events = [_parse_event(e) for e in raw_events if e.get("EventSource", "") in sources][
-        :max_events
+    oldest_scanned: datetime | None = None
+    fully_covered = True
+    notes: list[str] = [
+        "Source: CloudTrail LookupEvents — always-on management-event history, last 90 days "
+        "max; no trail required. For longer retention use CloudTrail Lake or an S3 trail.",
     ]
+
+    if include_read_only:
+        # One sweep per EventSource (LookupEvents allows a single attribute per call).
+        for s in sorted(sources):
+            attr = {"AttributeKey": "EventSource", "AttributeValue": s}
+            matched, oldest, covered = _lookup_paged(
+                trail, attr, start, end, sources, max_events, _SWEEP_PAGE_BUDGET, errors
+            )
+            raw_events.extend(matched)
+            fully_covered = fully_covered and covered
+            if oldest is not None and (oldest_scanned is None or oldest < oldest_scanned):
+                oldest_scanned = oldest
+        notes.append(
+            "include_read_only sweeps can be flooded by automated Describe/List noise (e.g. "
+            "auto-scaling polls every ~40s), which limits how far back the page budget reaches."
+        )
+    else:
+        # Mutations: an account-wide ReadOnly=false sweep first. In noisy accounts (constant
+        # SSM/EC2 writes) this alone can cover only minutes — so for a single-service query the
+        # curated mutation event names are ALSO looked up directly; each EventName lookup spans
+        # the full window regardless of account noise.
+        attr = {"AttributeKey": "ReadOnly", "AttributeValue": "false"}
+        raw_events, oldest_scanned, fully_covered = _lookup_paged(
+            trail, attr, start, end, sources, max_events, _SWEEP_PAGE_BUDGET, errors
+        )
+        notes.append(
+            "By default only mutating events are returned (ReadOnly=false); pass "
+            "include_read_only=true to also include Describe/List calls."
+        )
+        targeted_names = consts.EUC_AUDIT_MUTATION_EVENT_NAMES.get(service, [])
+        if targeted_names:
+            for name in targeted_names:
+                time.sleep(_LOOKUP_PACING_SECONDS)
+                name_attr = {"AttributeKey": "EventName", "AttributeValue": name}
+                matched, _, _ = _lookup_paged(
+                    trail, name_attr, start, end, sources, max_events, 3, errors
+                )
+                raw_events.extend(matched)
+            notes.append(
+                f"{len(targeted_names)} curated {service} mutation event names (Create/Update/"
+                "Delete/Start/Stop of fleets, stacks, desktops, portals, builders, ...) were "
+                "additionally looked up across the FULL window, so those changes are captured "
+                "even where the account-wide sweep fell short."
+            )
+        elif service == "all" and not fully_covered:
+            notes.append(
+                "Re-run with a specific service (e.g. service='applications') to additionally "
+                "scan that service's curated mutation event names across the full window."
+            )
+
+    # Merge sweep + targeted results, dropping duplicates seen by both query paths.
+    seen_ids: set[str] = set()
+    deduped: list[dict[str, Any]] = []
+    for e in raw_events:
+        eid = str(e.get("EventId") or _event_sort_key(e) + e.get("EventName", ""))
+        if eid in seen_ids:
+            continue
+        seen_ids.add(eid)
+        deduped.append(e)
+    deduped.sort(key=_event_sort_key, reverse=True)
+
+    if not fully_covered:
+        reached = oldest_scanned.isoformat() if oldest_scanned else "an unknown point"
+        notes.append(
+            f"PARTIAL WINDOW COVERAGE: the account-wide scan reached back only to {reached}, "
+            f"not the full {lookback_days} days (page budget; account event volume). Do NOT "
+            "conclude 'no changes in the window' from the scan alone — only the curated "
+            "event-name lookups above (if run) cover the full window."
+        )
+
+    events = [_parse_event(e) for e in deduped][:max_events]
 
     by_event_name: dict[str, int] = {}
     by_user: dict[str, int] = {}
@@ -156,18 +259,15 @@ def get_euc_audit_trail_core(
         region=region,
         lookback_days=lookback_days,
         include_read_only=include_read_only,
+        window_fully_covered=fully_covered,
+        scanned_back_to=oldest_scanned.isoformat() if oldest_scanned else None,
         total_events=len(events),
         by_event_name=dict(sorted(by_event_name.items(), key=lambda kv: kv[1], reverse=True)),
         by_user=dict(sorted(by_user.items(), key=lambda kv: kv[1], reverse=True)),
         events=events,
         findings=_audit_findings(events),
         errors=errors,
-        notes=[
-            "Source: CloudTrail LookupEvents — always-on management-event history, last 90 days "
-            "max; no trail required. For longer retention use CloudTrail Lake or an S3 trail.",
-            "By default only mutating events are returned (ReadOnly=false); pass "
-            "include_read_only=true to also include Describe/List calls.",
-        ],
+        notes=notes,
     )
 
 
@@ -420,15 +520,28 @@ def register(mcp: Any, factory: ClientFactory) -> None:
         Personal/Pools/Core, WorkSpaces Applications, Secure Browser, and Core Managed Instances,
         with destructive actions and errors (e.g. AccessDenied) flagged. Read-only.
 
+        IMPORTANT: when the user asks about ONE service (e.g. "recent AppStream changes"), pass
+        that service — a single-service query additionally scans ~2 dozen curated mutation event
+        names across the FULL window, immune to account noise. Check window_fully_covered in the
+        response: when false, the account-wide scan stopped early (scanned_back_to says where) and
+        an empty result does NOT mean nothing changed.
+
         Args:
             region: AWS region. Defaults to the server's configured region.
             lookback_days: Window in days (1-90, default 7).
-            service: Limit to one service group, or "all".
+            service: Limit to one service group, or "all". Prefer a specific service when the
+                question is about one — it enables the full-window curated event-name scan.
             include_read_only: Also include Describe/List calls (default False = mutations only).
             max_events: Maximum events to return (default 100).
         """
-        report = get_euc_audit_trail_core(
-            factory, region or factory.region, lookback_days, service, include_read_only, max_events
+        report = await asyncio.to_thread(
+            get_euc_audit_trail_core,
+            factory,
+            region or factory.region,
+            lookback_days,
+            service,
+            include_read_only,
+            max_events,
         )
         return report.model_dump()
 

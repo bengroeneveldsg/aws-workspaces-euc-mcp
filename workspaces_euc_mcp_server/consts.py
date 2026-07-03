@@ -86,6 +86,96 @@ EUC_QUOTA_SERVICE_FILTER = {
     "secure-browser": ["workspaces-web"],
     "core": ["workspaces-instances"],
 }
+# Curated high-value mutation event names per service group. The account-wide ReadOnly=false
+# sweep gets buried in noisy accounts (SSM/EC2 writes dominate), so when a single service is
+# selected the audit trail ALSO looks these names up directly — each EventName lookup covers the
+# full time window regardless of account noise. Names collide across services (e.g. CreateStack is
+# also CloudFormation), so results are still filtered by EventSource. Kept to ~2 dozen per service
+# because LookupEvents is throttled at 2 requests/second.
+EUC_AUDIT_MUTATION_EVENT_NAMES = {
+    "workspaces": [
+        "CreateWorkspaces",
+        "TerminateWorkspaces",
+        "RebuildWorkspaces",
+        "RestoreWorkspace",
+        "StartWorkspaces",
+        "StopWorkspaces",
+        "RebootWorkspaces",
+        "MigrateWorkspace",
+        "ModifyWorkspaceProperties",
+        "ModifyWorkspaceCreationProperties",
+        "ModifyWorkspaceAccessProperties",
+        "ModifyClientProperties",
+        "ModifySelfservicePermissions",
+        "ModifyAccount",
+        "RegisterWorkspaceDirectory",
+        "DeregisterWorkspaceDirectory",
+        "CreateWorkspaceImage",
+        "DeleteWorkspaceImage",
+        "UpdateWorkspaceImagePermission",
+        "CreateWorkspacesPool",
+        "UpdateWorkspacesPool",
+        "TerminateWorkspacesPool",
+        "CreateIpGroup",
+        "UpdateRulesOfIpGroup",
+    ],
+    "applications": [
+        "CreateFleet",
+        "UpdateFleet",
+        "DeleteFleet",
+        "StartFleet",
+        "StopFleet",
+        "CreateStack",
+        "UpdateStack",
+        "DeleteStack",
+        "AssociateFleet",
+        "DisassociateFleet",
+        "BatchAssociateUserStack",
+        "BatchDisassociateUserStack",
+        "CreateImageBuilder",
+        "DeleteImageBuilder",
+        "StartImageBuilder",
+        "StopImageBuilder",
+        "CreateUpdatedImage",
+        "DeleteImage",
+        "UpdateImagePermissions",
+        "CreateAppBlockBuilder",
+        "DeleteAppBlockBuilder",
+        "StartAppBlockBuilder",
+        "StopAppBlockBuilder",
+    ],
+    "secure-browser": [
+        "CreatePortal",
+        "UpdatePortal",
+        "DeletePortal",
+        "CreateBrowserSettings",
+        "UpdateBrowserSettings",
+        "DeleteBrowserSettings",
+        "CreateUserSettings",
+        "UpdateUserSettings",
+        "DeleteUserSettings",
+        "CreateNetworkSettings",
+        "UpdateNetworkSettings",
+        "DeleteNetworkSettings",
+        "CreateIpAccessSettings",
+        "UpdateIpAccessSettings",
+        "DeleteIpAccessSettings",
+        "CreateIdentityProvider",
+        "UpdateIdentityProvider",
+        "DeleteIdentityProvider",
+        "CreateDataProtectionSettings",
+        "UpdateDataProtectionSettings",
+    ],
+    "core": [
+        "CreateWorkspaceInstance",
+        "DeleteWorkspaceInstance",
+        "CreateVolume",
+        "DeleteVolume",
+        "AssociateVolume",
+        "DisassociateVolume",
+    ],
+}
+
 # CloudTrail event-name prefixes treated as destructive/high-impact in audit findings.
 AUDIT_DESTRUCTIVE_PREFIXES = (
     "Terminate",
@@ -224,6 +314,18 @@ CRITICAL — power state vs user connections are DIFFERENT signals; do not confl
 - analyze_workspace_utilization classifications (unused/idle/active) reflect USER CONNECTIONS over
   a lookback window, NOT power state. A desktop can be AVAILABLE yet "unused". Never report a
   desktop as stopped/not running based on utilization or connection data.
+
+CRITICAL — WorkSpaces Applications fleet costs depend on the FLEET TYPE; never quote 24x7 rates
+for On-Demand capacity:
+- ALWAYS_ON fleets bill the instance hourly rate 24/7 for every provisioned instance.
+- ON_DEMAND fleets bill the instance hourly rate ONLY while a user is streaming; provisioned idle
+  instances bill the much smaller stopped-instance fee (on_demand_stopped_hourly_usd from
+  get_euc_service_prices, ~$0.025/hr). Estimating an idle On-Demand fleet at capacity x 730h
+  overstates its cost roughly 10x.
+- ELASTIC fleets bill per streaming hour only. Image/app-block builders bill the full rate the
+  entire time they are RUNNING.
+Prefer actual spend (get_euc_cost_summary / compare_euc_costs) over derived estimates, and check
+the resource's creation date before attributing a full month of cost to it.
 
 LARGE ESTATES (hundreds/thousands of resources): start with get_euc_inventory_summary (counts
 only), not the full per-resource report. generate_inventory_report caps each section at

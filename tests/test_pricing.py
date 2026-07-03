@@ -116,6 +116,33 @@ def test_bundle_sku_listing_empty_for_unknown_region():
     assert pricing.list_workspace_bundle_skus(factory, "mars-1", "WINDOWS_11", "POWER") == []
 
 
+def test_appstream_stopped_instance_fee_parsed():
+    stopped_product = json.dumps(
+        {
+            "product": {"attributes": {"instanceFunction": "StoppedFleetInstance"}},
+            "terms": {
+                "OnDemand": {
+                    "t": {
+                        "priceDimensions": {
+                            "d": {"unit": "Hours", "pricePerUnit": {"USD": "0.025"}}
+                        }
+                    }
+                }
+            },
+        }
+    )
+
+    def get_products(**kwargs):
+        funcs = [f["Value"] for f in kwargs["Filters"] if f["Field"] == "instanceFunction"]
+        assert funcs == ["StoppedFleetInstance"]
+        return {"PriceList": [stopped_product]}
+
+    factory = FakeFactory({"pricing": types.SimpleNamespace(get_products=get_products)})
+    assert pricing.appstream_stopped_instance_fee(factory, "ap-southeast-1") == 0.025
+    # Unknown region -> no location -> None without calling pricing.
+    assert pricing.appstream_stopped_instance_fee(factory, "mars-1") is None
+
+
 def test_get_workspace_prices_all_none_when_storage_unmatched():
     # Query succeeds but no SKU carries the requested pairing -> truthy tuple of Nones,
     # which is the case the tool-level near-miss fallback keys off.
