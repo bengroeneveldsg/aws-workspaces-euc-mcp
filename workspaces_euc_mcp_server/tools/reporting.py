@@ -170,7 +170,11 @@ def generate_inventory_report_core(
                         "root_volume_encrypted": bool(w.get("RootVolumeEncryptionEnabled")),
                         "user_volume_encrypted": bool(w.get("UserVolumeEncryptionEnabled")),
                         "subnet_id": w.get("SubnetId"),
-                        "tags": _ws_tags(w.get("WorkspaceId", ""), errors),
+                        **(
+                            {"tags": _ws_tags(w.get("WorkspaceId", ""), errors)}
+                            if include_tags
+                            else {}
+                        ),
                     },
                 )
                 for w in (personal or [])
@@ -229,7 +233,7 @@ def generate_inventory_report_core(
                     "description": p.get("Description"),
                     "created_at": str(p.get("CreatedAt")) if p.get("CreatedAt") else None,
                     "errors": p.get("Errors"),
-                    "tags": _ws_tags(p.get("PoolId", ""), errors),
+                    **({"tags": _ws_tags(p.get("PoolId", ""), errors)} if include_tags else {}),
                 },
             )
 
@@ -276,7 +280,7 @@ def generate_inventory_report_core(
                         "disconnect_timeout_seconds": f.get("DisconnectTimeoutInSeconds"),
                         "max_sessions_per_instance": f.get("MaxSessionsPerInstance"),
                         "default_internet_access": f.get("EnableDefaultInternetAccess"),
-                        "tags": _appstream_tags(f.get("Arn"), errors),
+                        **({"tags": _appstream_tags(f.get("Arn"), errors)} if include_tags else {}),
                     },
                 )
                 for f in (fleets or [])
@@ -318,7 +322,7 @@ def generate_inventory_report_core(
                         "user_settings": s.get("UserSettings"),
                         "storage_connectors": s.get("StorageConnectors"),
                         "application_settings": s.get("ApplicationSettings"),
-                        "tags": _appstream_tags(s.get("Arn"), errors),
+                        **({"tags": _appstream_tags(s.get("Arn"), errors)} if include_tags else {}),
                     },
                 )
             )
@@ -358,7 +362,7 @@ def generate_inventory_report_core(
                         "instance_type": p.get("instanceType"),
                         "renderer_type": p.get("rendererType"),
                         "portal_endpoint": p.get("portalEndpoint"),
-                        "tags": _web_tags(p.get("portalArn"), errors),
+                        **({"tags": _web_tags(p.get("portalArn"), errors)} if include_tags else {}),
                     },
                 )
                 for p in (portals or [])

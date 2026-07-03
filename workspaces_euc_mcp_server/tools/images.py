@@ -29,6 +29,7 @@ from ..models import (
     WorkspaceImageAuditReport,
     WorkspaceImageInfo,
 )
+from . import pricing
 from ._common import paginate, read_only, try_call
 
 # An image whose base was released more than this many days ago likely lacks recent OS patches.
@@ -185,13 +186,21 @@ def audit_application_images_core(
         )
         if b.get("State") == "RUNNING":
             running += 1
+            rate = pricing.appstream_hourly_price(
+                factory, region, b.get("InstanceType"), "ImageBuilder", b.get("Platform")
+            )
+            cost_note = (
+                f" Current list rate: ${rate:.3f}/hr (~${rate * 730:,.0f}/mo if left running)."
+                if rate
+                else ""
+            )
             findings.append(
                 ApplicationImageFinding(
                     target=b.get("Name", "unknown"),
                     severity="warning",
                     issue=(
                         "Image builder is RUNNING — it bills per hour and is an interactive admin "
-                        "surface; stop it when not actively building an image."
+                        "surface; stop it when not actively building an image." + cost_note
                     ),
                 )
             )
@@ -210,13 +219,21 @@ def audit_application_images_core(
         )
         if b.get("State") == "RUNNING":
             abb_running += 1
+            rate = pricing.appstream_hourly_price(
+                factory, region, b.get("InstanceType"), "AppBlockBuilder", b.get("Platform")
+            )
+            cost_note = (
+                f" Current list rate: ${rate:.3f}/hr (~${rate * 730:,.0f}/mo if left running)."
+                if rate
+                else ""
+            )
             findings.append(
                 ApplicationImageFinding(
                     target=b.get("Name", "unknown"),
                     severity="warning",
                     issue=(
                         "App block builder is RUNNING — it bills per hour like an image builder; "
-                        "stop it when not actively packaging an app block."
+                        "stop it when not actively packaging an app block." + cost_note
                     ),
                 )
             )

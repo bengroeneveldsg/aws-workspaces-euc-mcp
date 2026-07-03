@@ -235,3 +235,88 @@ def test_health_report_composes_sections_and_markdown(monkeypatch):
     assert "real-alarm" in md
     assert "ws-idle" in md
     assert "$1,921.12" in md
+
+
+def test_appstream_pricing_maps_platform_to_license(monkeypatch):
+    from workspaces_euc_mcp_server.tools import pricing as pr
+
+    captured = []
+
+    class FakePricing:
+        def get_products(self, **kw):
+            captured.append(kw["Filters"])
+            return {
+                "PriceList": [
+                    '{"product": {"attributes": {}}, "terms": {"OnDemand": {"a": '
+                    '{"priceDimensions": {"b": {"unit": "hour", '
+                    '"pricePerUnit": {"USD": "0.217"}}}}}}}'
+                ]
+            }
+
+    class F:
+        region = "ap-southeast-1"
+
+        def client(self, name, region=None):
+            return FakePricing()
+
+    pr._generic_cache.clear()
+    rate = pr.appstream_hourly_price(
+        F(), "ap-southeast-1", "stream.standard.large", "ImageBuilder", "WINDOWS_11"
+    )
+    assert rate == 0.217
+    os_filter = [f for f in captured[0] if f["Field"] == "operatingSystem"][0]
+    assert os_filter["Value"] == "Windows BYOL"  # Windows 11 => BYOL SKU
+
+    pr._generic_cache.clear()
+    captured.clear()
+    pr.appstream_hourly_price(
+        F(), "ap-southeast-1", "stream.memory.xlarge", "ImageBuilder", "WINDOWS_SERVER_2025"
+    )
+    os_filter = [f for f in captured[0] if f["Field"] == "operatingSystem"][0]
+    assert os_filter["Value"] == "Windows"  # Server OS => included license
+
+
+def test_secure_browser_mau_tier_mapping():
+    from workspaces_euc_mcp_server.tools import pricing as pr
+
+    class FakePricing:
+        def get_products(self, **kw):
+            def sku(ut, usd):
+                import json as _json
+
+                return _json.dumps(
+                    {
+                        "product": {"attributes": {"usagetype": ut}},
+                        "terms": {
+                            "OnDemand": {
+                                "a": {
+                                    "priceDimensions": {
+                                        "b": {"unit": "MAU", "pricePerUnit": {"USD": usd}}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                )
+
+            return {
+                "PriceList": [
+                    sku("APS1-WORKSPACES-WEB-ST", "8"),
+                    sku("APS1-WORKSPACES-WEB-ST-LARGE", "23"),
+                    sku("APS1-WORKSPACES-WEB-ST-XLARGE", "40"),
+                ]
+            }
+
+    class F:
+        region = "ap-southeast-1"
+
+        def client(self, name, region=None):
+            return FakePricing()
+
+    pr._generic_cache.clear()
+    tiers = pr.secure_browser_mau_prices(F(), "ap-southeast-1")
+    assert tiers == {
+        "standard.regular": 8.0,
+        "standard.large": 23.0,
+        "standard.xlarge": 40.0,
+    }
