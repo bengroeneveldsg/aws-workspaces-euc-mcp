@@ -5,6 +5,41 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-07-03
+
+Comprehensive Price List ground-truthing across all four EUC service codes (full attribute/value
+discovery + SKU-shape analysis, written up in **docs/pricing-api.md**), followed by an engine
+rework and live validation matrix. No new tools; 30 unchanged.
+
+### Fixed
+- **Storage-variant bundles** — a compute type is a bundle FAMILY: `Power` carries 175/100 and
+  suffixed variants carry the rest (`Power-0`=80/10, `-1`=80/50, `-2`=80/100). The personal
+  engine now queries the whole family and matches on the storage attribute, so every pairing
+  resolves with complete fees (v0.1.21's "AWS doesn't publish 80/10 monthly fees" was wrong —
+  they live under `Power-0`). AutoStop hourly is compute-level and inherited by variants.
+- **productFamily cross-contamination** — the same bundle names exist under "WorkSpaces Core"
+  with different prices (Power-0: \$112 Core vs \$116 Personal); personal queries now pin
+  productFamily="Enterprise Applications". (The v0.1.21 "partial" 80/10 rates were actually
+  Core SKUs leaking in.)
+- **Linux Personal pricing worked never** — the API has no `operatingSystem=Linux` value, and
+  Amazon Linux/Ubuntu carry `license=None`. Real OS values + per-OS license models now resolve
+  Amazon Linux, Ubuntu, RHEL, and Rocky correctly.
+- Bundle map now covers Graphics, GraphicsPro, Graphics.g4dn, GraphicsPro.g4dn, and
+  GeneralPurpose 4xl/8xl; AppStream platform→OS mapping is substring-based (survives enum
+  revisions) and covers Ubuntu Pro.
+
+### Added
+- **`service="pools"`** — WorkSpaces Pools rates: streaming \$/hr per bundle (Included vs BYOL,
+  e.g. SIN Power \$0.48 vs \$0.417), stopped-instance \$0.025/hr, and the \$4.19/user/month fee,
+  with the Pools billing-model note.
+- **Microsoft user fees on Applications pricing** — Included-license Windows fleets add RDS SAL
+  per unique user per month (SIN: \$4.19 single-session; \$6.42 + \$2.23/additional
+  multi-session); returned as `microsoft_user_fees_monthly_usd` with a note that BYOL fleets
+  don't incur them.
+- **docs/pricing-api.md** — the empirical model of the Price List for EUC: attribute
+  vocabularies, SKU shapes, OS/license pairings, per-family rate placement, and the design
+  rules derived from them.
+
 ## [0.1.22] - 2026-07-03
 
 From live validation: a Windows Server 2025 vs Windows 11 price comparison came back "identical"
