@@ -105,10 +105,7 @@ def get_workspace_prices(
             filters = base_filters + [
                 {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode}
             ]
-            resp = pricing.get_products(
-                ServiceCode="AmazonWorkSpaces", Filters=filters, MaxResults=100
-            )
-            for raw in resp.get("PriceList", []):
+            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
                 product = json.loads(raw)
                 attrs = product["product"]["attributes"]
                 if attrs.get("storage") != storage:
@@ -154,18 +151,14 @@ def list_workspace_bundle_skus(
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
         for running_mode in ("AlwaysOn", "AutoStop"):
-            resp = pricing.get_products(
-                ServiceCode="AmazonWorkSpaces",
-                Filters=[
-                    {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                    {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
-                    {"Type": "TERM_MATCH", "Field": "license", "Value": "Included"},
-                    {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
-                    {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode},
-                ],
-                MaxResults=100,
-            )
-            for raw in resp.get("PriceList", []):
+            filters = [
+                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+                {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
+                {"Type": "TERM_MATCH", "Field": "license", "Value": "Included"},
+                {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
+                {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode},
+            ]
+            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
                 product = json.loads(raw)
                 storage = product["product"]["attributes"].get("storage")
                 if not storage:
@@ -251,6 +244,37 @@ _WEB_TIER_BY_SUFFIX = {
 
 _generic_cache: dict[tuple, object] = {}
 
+_PRICE_LIST_MAX_PAGES = 5  # get_products caps at 100 products/page; 500 covers any EUC query
+
+
+def _iter_price_list(pricing: Any, service_code: str, filters: list[dict]) -> Any:
+    """Yield raw PriceList JSON strings across pages (single pages silently truncate)."""
+    token: str | None = None
+    for _ in range(_PRICE_LIST_MAX_PAGES):
+        kwargs: dict[str, Any] = {
+            "ServiceCode": service_code,
+            "Filters": filters,
+            "MaxResults": 100,
+        }
+        if token:
+            kwargs["NextToken"] = token
+        resp = pricing.get_products(**kwargs)
+        yield from resp.get("PriceList", [])
+        token = resp.get("NextToken")
+        if not token:
+            return
+
+
+def classify_price_completeness(prices: WorkspacePrices | None) -> str:
+    """'complete' | 'partial' | 'none' — AWS's Price List publishes some bundle/storage
+    pairings with only a subset of rates (e.g. Power Root:80/User:10 in Singapore has an
+    AutoStop hourly but no monthly fees), and unexplained nulls read as $0 or "unavailable"."""
+    if prices is None or all(p is None for p in prices):
+        return "none"
+    if any(p is None for p in prices):
+        return "partial"
+    return "complete"
+
 
 def _appstream_os_for_platform(platform: str | None) -> str:
     if not platform:
@@ -276,17 +300,13 @@ def appstream_hourly_price(
     price: float | None = None
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
-        resp = pricing.get_products(
-            ServiceCode="AmazonAppStream",
-            Filters=[
-                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                {"Type": "TERM_MATCH", "Field": "instanceType", "Value": instance_type},
-                {"Type": "TERM_MATCH", "Field": "instanceFunction", "Value": instance_function},
-                {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
-            ],
-            MaxResults=20,
-        )
-        for raw in resp.get("PriceList", []):
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {"Type": "TERM_MATCH", "Field": "instanceType", "Value": instance_type},
+            {"Type": "TERM_MATCH", "Field": "instanceFunction", "Value": instance_function},
+            {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
+        ]
+        for raw in _iter_price_list(pricing, "AmazonAppStream", filters):
             product = json.loads(raw)
             for term in product.get("terms", {}).get("OnDemand", {}).values():
                 for pd in term["priceDimensions"].values():
@@ -357,19 +377,15 @@ def appstream_stopped_instance_fee(factory: ClientFactory, region: str | None) -
     fee: float | None = None
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
-        resp = pricing.get_products(
-            ServiceCode="AmazonAppStream",
-            Filters=[
-                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                {
-                    "Type": "TERM_MATCH",
-                    "Field": "instanceFunction",
-                    "Value": "StoppedFleetInstance",
-                },
-            ],
-            MaxResults=10,
-        )
-        for raw in resp.get("PriceList", []):
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {
+                "Type": "TERM_MATCH",
+                "Field": "instanceFunction",
+                "Value": "StoppedFleetInstance",
+            },
+        ]
+        for raw in _iter_price_list(pricing, "AmazonAppStream", filters):
             product = json.loads(raw)
             for term in product.get("terms", {}).get("OnDemand", {}).values():
                 for pd in term["priceDimensions"].values():
@@ -380,6 +396,46 @@ def appstream_stopped_instance_fee(factory: ClientFactory, region: str | None) -
         logger.warning("Stopped-instance fee lookup failed for {}: {}", location, exc)
     _generic_cache[key] = fee
     return fee
+
+
+def appstream_os_rate_options(
+    factory: ClientFactory,
+    region: str | None,
+    instance_type: str | None,
+    instance_function: str,
+) -> dict[str, float]:
+    """OS/license variant -> $/hour for an instance type + function (no-match discovery).
+
+    When a requested platform has no SKU, listing what AWS *does* price lets the assistant pick
+    the right variant instead of guessing (the awslabs "never guess values" pattern)."""
+    location = _REGION_LOCATIONS.get(region or "")
+    if not (location and instance_type):
+        return {}
+    key = ("appstream-os-options", location, instance_type, instance_function)
+    if key in _generic_cache:
+        return dict(_generic_cache[key])  # type: ignore[arg-type]
+    out: dict[str, float] = {}
+    try:
+        pricing = factory.client("pricing", region=_PRICING_REGION)
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {"Type": "TERM_MATCH", "Field": "instanceType", "Value": instance_type},
+            {"Type": "TERM_MATCH", "Field": "instanceFunction", "Value": instance_function},
+        ]
+        for raw in _iter_price_list(pricing, "AmazonAppStream", filters):
+            product = json.loads(raw)
+            os_value = product["product"]["attributes"].get("operatingSystem")
+            if not os_value:
+                continue
+            for term in product.get("terms", {}).get("OnDemand", {}).values():
+                for pd in term["priceDimensions"].values():
+                    usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                    if usd > 0 and (pd.get("unit") or "").lower().startswith("hour"):
+                        out[os_value] = usd
+    except Exception as exc:
+        logger.warning("OS-options lookup failed for {}: {}", key, exc)
+    _generic_cache[key] = out
+    return out
 
 
 def secure_browser_mau_prices(factory: ClientFactory, region: str | None) -> dict[str, float]:
@@ -393,12 +449,8 @@ def secure_browser_mau_prices(factory: ClientFactory, region: str | None) -> dic
     out: dict[str, float] = {}
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
-        resp = pricing.get_products(
-            ServiceCode="AmazonWorkSpacesWeb",
-            Filters=[{"Type": "TERM_MATCH", "Field": "location", "Value": location}],
-            MaxResults=100,
-        )
-        for raw in resp.get("PriceList", []):
+        filters = [{"Type": "TERM_MATCH", "Field": "location", "Value": location}]
+        for raw in _iter_price_list(pricing, "AmazonWorkSpacesWeb", filters):
             product = json.loads(raw)
             usage_type = product["product"]["attributes"].get("usagetype", "")
             tier = next(
@@ -431,15 +483,11 @@ def core_instance_prices(
     out: list[dict] = []
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
-        resp = pricing.get_products(
-            ServiceCode="AmazonWorkSpacesInstances",
-            Filters=[
-                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                {"Type": "TERM_MATCH", "Field": "instanceType", "Value": instance_type},
-            ],
-            MaxResults=100,
-        )
-        for raw in resp.get("PriceList", []):
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {"Type": "TERM_MATCH", "Field": "instanceType", "Value": instance_type},
+        ]
+        for raw in _iter_price_list(pricing, "AmazonWorkSpacesInstances", filters):
             product = json.loads(raw)
             attrs = product["product"]["attributes"]
             for term in product.get("terms", {}).get("OnDemand", {}).values():
@@ -468,6 +516,7 @@ def register(mcp, factory: ClientFactory) -> None:
     async def get_euc_service_prices(
         service: Literal["applications", "secure-browser", "core", "personal"],
         region: str | None = None,
+        regions: list[str] | None = None,
         fleet_name: str | None = None,
         instance_type: str | None = None,
         instance_function: Literal[
@@ -507,6 +556,8 @@ def register(mcp, factory: ClientFactory) -> None:
         Args:
             service: Which EUC service to price.
             region: AWS region the resources run in. Defaults to the server's configured region.
+            regions: Compare list prices across several regions in ONE call (returns by_region);
+                overrides region. Use for "is X cheaper in Sydney?" questions.
             fleet_name: Applications fleet to price — auto-resolves instance type, platform
                 (BYOL-aware, from the fleet's image), fleet type, and capacity estimates.
             instance_type: Streaming/managed instance type (applications, core).
@@ -518,13 +569,18 @@ def register(mcp, factory: ClientFactory) -> None:
             user_volume_gib: Personal user volume GiB (personal).
         """
 
-        def _lookup() -> dict[str, Any]:
-            target_region = region or factory.region
+        def _lookup_one(target_region: str | None) -> dict[str, Any]:
             location = _REGION_LOCATIONS.get(target_region or "")
             base: dict[str, Any] = {
                 "service": service,
                 "region": target_region,
                 "pricing_location": location,
+                "assumptions": [
+                    "Rates are PUBLIC LIST prices from the AWS Price List API — private "
+                    "pricing, EDP/PPA discounts, and credits are NOT reflected; "
+                    "get_euc_cost_summary shows the account's discounted actuals.",
+                    "Monthly derivations assume a 730-hour month.",
+                ],
                 "notes": [],
             }
             if not location:
@@ -595,6 +651,14 @@ def register(mcp, factory: ClientFactory) -> None:
                     base["notes"].append(
                         "No matching SKU — check instance_type/instance_function/platform."
                     )
+                    os_options = appstream_os_rate_options(factory, target_region, itype, ifunc)
+                    if os_options:
+                        base["available_operating_systems"] = os_options
+                        base["notes"].append(
+                            "available_operating_systems lists every OS/license variant AWS "
+                            "prices for this instance type + function in this region — pick "
+                            "the matching one instead of guessing."
+                        )
             elif service == "secure-browser":
                 base["monthly_active_user_usd_by_tier"] = secure_browser_mau_prices(
                     factory, target_region
@@ -643,25 +707,46 @@ def register(mcp, factory: ClientFactory) -> None:
                         "hours/month against this number — near the tipping point the "
                         "difference is small either way."
                     )
-                # prices can be a successful query with no matching storage pairing (all-None
-                # fields), which needs the same fallback as invalid inputs.
-                if prices is None or all(p is None for p in prices):
+                completeness = classify_price_completeness(prices)
+                if completeness == "none":
                     base["notes"].append(
                         "No clean bundle match (needs compute_type, operating_system and both "
                         "volume sizes; Included-license SKUs only)."
                     )
+                elif completeness == "partial":
+                    base["notes"].append(
+                        "PARTIAL PRICE LIST DATA: AWS publishes only some rates for this "
+                        "storage pairing in this region — the null fields are UNPUBLISHED, "
+                        "not $0 and not 'service unavailable'. Use a pairing from "
+                        "available_storage_configurations for a complete quote, or state the "
+                        "gap explicitly."
+                    )
+                if completeness != "complete":
                     nearby = list_workspace_bundle_skus(
                         factory, target_region, operating_system, compute_type
                     )
                     if nearby:
                         base["available_storage_configurations"] = nearby
                         base["notes"].append(
-                            "AWS does not price the requested storage pairing for this "
-                            "compute/OS; available_storage_configurations lists the pairings "
-                            "it does price. Do NOT present any of them as the price for the "
-                            "requested sizes — say the exact configuration has no list SKU."
+                            "available_storage_configurations lists every storage pairing AWS "
+                            "prices for this compute/OS in this region with its published "
+                            "rates — do NOT present one pairing's price as another's."
                         )
             return base
+
+        def _lookup() -> dict[str, Any]:
+            if regions:
+                wanted = list(dict.fromkeys(regions))
+                return {
+                    "service": service,
+                    "regions": wanted,
+                    "by_region": {r: _lookup_one(r) for r in wanted},
+                    "notes": [
+                        "Cross-region LIST-price comparison in one call; each region entry "
+                        "carries its own assumptions and notes."
+                    ],
+                }
+            return _lookup_one(region or factory.region)
 
         return await asyncio.to_thread(_lookup)
 

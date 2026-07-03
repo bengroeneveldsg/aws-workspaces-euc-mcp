@@ -116,6 +116,66 @@ def test_autostop_breakeven_none_when_rates_missing():
     assert pricing.autostop_breakeven_hours(pricing.WorkspacePrices(20.0, 26.0, 0.99)) is None
 
 
+def test_iter_price_list_follows_pagination():
+    pages = {
+        None: {"PriceList": ["a", "b"], "NextToken": "t1"},
+        "t1": {"PriceList": ["c"], "NextToken": "t2"},
+        "t2": {"PriceList": ["d"]},  # no NextToken -> stop
+    }
+
+    def get_products(**kwargs):
+        return pages[kwargs.get("NextToken")]
+
+    client = types.SimpleNamespace(get_products=get_products)
+    got = list(pricing._iter_price_list(client, "AmazonWorkSpaces", []))
+    assert got == ["a", "b", "c", "d"]
+
+
+def test_classify_price_completeness():
+    full = pricing.WorkspacePrices(124.0, 26.0, 0.99)
+    partial = pricing.WorkspacePrices(None, None, 0.95)  # the Power 80/10 SIN case
+    empty = pricing.WorkspacePrices(None, None, None)
+    assert pricing.classify_price_completeness(full) == "complete"
+    assert pricing.classify_price_completeness(partial) == "partial"
+    assert pricing.classify_price_completeness(empty) == "none"
+    assert pricing.classify_price_completeness(None) == "none"
+
+
+def test_appstream_os_rate_options_lists_variants():
+    def _aps_product(os_value, usd):
+        return json.dumps(
+            {
+                "product": {"attributes": {"operatingSystem": os_value}},
+                "terms": {
+                    "OnDemand": {
+                        "t": {
+                            "priceDimensions": {
+                                "d": {"unit": "Hours", "pricePerUnit": {"USD": usd}}
+                            }
+                        }
+                    }
+                },
+            }
+        )
+
+    def get_products(**kwargs):
+        fields = {f["Field"] for f in kwargs["Filters"]}
+        assert "operatingSystem" not in fields  # discovery query must NOT pin the OS
+        return {
+            "PriceList": [
+                _aps_product("Windows", "0.24"),
+                _aps_product("Windows BYOL", "0.217"),
+                _aps_product("Amazon Linux", "0.217"),
+            ]
+        }
+
+    factory = FakeFactory({"pricing": types.SimpleNamespace(get_products=get_products)})
+    options = pricing.appstream_os_rate_options(
+        factory, "ap-southeast-1", "stream.standard.large", "Fleet"
+    )
+    assert options == {"Windows": 0.24, "Windows BYOL": 0.217, "Amazon Linux": 0.217}
+
+
 def test_bundle_sku_listing_groups_by_storage():
     # The Price List fake only knows Root:175/User:100 SKUs; the listing should surface that
     # pairing with all three price points, regardless of what storage the caller wanted.
