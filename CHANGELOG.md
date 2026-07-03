@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-07-03
+
+### Added
+- **Pricing now covers the whole EUC portfolio** (was WorkSpaces-bundles-only). New
+  `get_euc_service_prices` tool returns authoritative AWS Price List rates per region:
+  - **Applications**: $/hour by instance type × function (Fleet/ImageBuilder/AppBlockBuilder/
+    Elastic/MultiSession) × **license model** — Windows Server = included license, Windows 10/11 =
+    BYOL (cheaper SKU) — plus derived $/day and $/month.
+  - **Secure Browser**: $/monthly-active-user by portal tier (standard.regular/large/xlarge).
+  - **Core Managed Instances**: management-fee SKUs (monthly/hourly variants) per instance type.
+  - **Personal**: existing bundle rates (AlwaysOn monthly, AutoStop base+hourly), now exposed
+    directly.
+  Found via live validation: an assistant estimated a running builder at \$0.38/hr from model
+  memory when the real Singapore BYOL rate is \$0.217/hr (75% overstated) — this tool exists so
+  cost answers never come from memory.
+- `audit_application_images` RUNNING image/app-block builder findings now include the **actual
+  regional list rate** ("\$0.680/hr, ~\$496/mo if left running") — best-effort, requires Tier 1
+  pricing permission.
+
+### Fixed
+- `generate_inventory_report` / CSV export no longer emit an empty `tags` column when
+  `include_tags` is off.
+
 ## [0.1.15] - 2026-07-03
 
 ### Fixed

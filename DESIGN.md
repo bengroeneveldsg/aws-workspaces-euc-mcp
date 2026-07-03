@@ -4,7 +4,7 @@
 > inventory, troubleshooting, cost/utilization optimization, and guarded lifecycle management
 > across the Amazon WorkSpaces family of End User Computing services.
 >
-> **Shipped:** 29 tools — 28 read-only (Tier 0/1) plus a local CSV export + 10 guarded write tools (Tier 2) + 3 destructive
+> **Shipped:** 30 tools — 29 read-only (Tier 0/1) plus a local CSV export + 10 guarded write tools (Tier 2) + 3 destructive
 > tools (Tier 3), all behind opt-in flags with dry-run/confirm/blast-radius/typed-acknowledgement
 > guards. Read-only coverage includes image auditing, governance (CloudTrail audit trail + Service
 > Quotas headroom), cost forecast/period comparison, and active CloudWatch alarms. Cross-service
@@ -138,6 +138,7 @@ and return a synthesized result, not raw API passthroughs.
 |---|---|---|
 | `analyze_workspace_utilization` | Find idle/unused Personal WorkSpaces from connection metrics | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
 | `recommend_running_mode` | AlwaysOn → AutoStop candidates with a $ estimate | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData`, `pricing:GetProducts` |
+| `get_euc_service_prices` | Authoritative Price List rates for all four services (Applications hourly incl. BYOL, Secure Browser MAU tiers, Core fee SKUs, Personal bundles) | `pricing:GetProducts` |
 | `recommend_bundle_rightsizing` | Over/under-sized bundles from native CPU/mem metrics (see §10) | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspaceBundles`, `cloudwatch:GetMetricData` |
 | `get_workspace_performance` | Per-WorkSpace CPU/mem/GPU/FPS/latency from native `AWS/WorkSpaces` metrics | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData` |
 | `get_workspace_connection_history` | Per-WorkSpace connection timeline | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |

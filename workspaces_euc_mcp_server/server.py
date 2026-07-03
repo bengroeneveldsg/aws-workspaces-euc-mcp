@@ -27,6 +27,7 @@ from .tools import (
     inventory,
     lifecycle,
     performance,
+    pricing,
     reporting,
     secure_browser,
 )
@@ -72,6 +73,7 @@ def create_server(
     governance.register(mcp, factory)
     access.register(mcp, factory)
     health.register(mcp, factory)
+    pricing.register(mcp, factory)
 
     if enable_writes:
         logger.info(
