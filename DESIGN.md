@@ -138,7 +138,7 @@ and return a synthesized result, not raw API passthroughs.
 |---|---|---|
 | `analyze_workspace_utilization` | Find idle/unused Personal WorkSpaces from connection metrics | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
 | `recommend_running_mode` | AlwaysOn → AutoStop candidates with a $ estimate | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData`, `pricing:GetProducts` |
-| `get_euc_service_prices` | Authoritative Price List rates for all four services (Applications hourly incl. BYOL, Secure Browser MAU tiers, Core fee SKUs per billing option, Personal bundles + near-miss storage listing when the exact pairing has no SKU) | `pricing:GetProducts` |
+| `get_euc_service_prices` | Authoritative Price List rates for all four services (Applications hourly incl. BYOL + On-Demand stopped-instance fee + fleet-type billing notes, Secure Browser MAU tiers, Core fee SKUs per billing option, Personal bundles + near-miss storage listing when the exact pairing has no SKU) | `pricing:GetProducts` |
 | `recommend_bundle_rightsizing` | Over/under-sized bundles from native CPU/mem metrics (see §10) | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspaceBundles`, `cloudwatch:GetMetricData` |
 | `get_workspace_performance` | Per-WorkSpace CPU/mem/GPU/FPS/latency from native `AWS/WorkSpaces` metrics | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData` |
 | `get_workspace_connection_history` | Per-WorkSpace connection timeline | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
@@ -166,7 +166,7 @@ and return a synthesized result, not raw API passthroughs.
 **Governance** (cross-service)
 | Tool | Purpose | IAM actions |
 |---|---|---|
-| `get_euc_audit_trail` | "Who changed what" — recent EUC management events (mutations by default), 90-day CloudTrail history | `cloudtrail:LookupEvents` |
+| `get_euc_audit_trail` | "Who changed what" — recent EUC management events (mutations by default), 90-day CloudTrail history; per-service curated event-name scan + honest window-coverage reporting | `cloudtrail:LookupEvents` |
 | `get_euc_service_quotas` | Quota limits + usage headroom per EUC service (capacity planning) | `servicequotas:ListServiceQuotas`, `servicequotas:GetServiceQuota`, `cloudwatch:GetMetricData` |
 | `get_euc_account_posture` | Account posture: dedicated tenancy/BYOL, client properties, connection aliases | `workspaces:DescribeAccount`/`DescribeAccountModifications`/`DescribeClientProperties`/`DescribeConnectionAliases` |
 

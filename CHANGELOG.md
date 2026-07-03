@@ -5,6 +5,35 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-07-03
+
+Two confident-wrong-answer bugs found in live validation, both fixed. No new tools; 30 unchanged.
+
+### Fixed
+- **Audit trail false negative** — `get_euc_audit_trail` reported "no AppStream changes in 14
+  days" while CloudTrail held a `CreateFleet`/`CreateStack` from 5 days earlier. The mutations
+  sweep (account-wide `ReadOnly=false`) stopped after `max_events` RAW events, which in a noisy
+  account (constant SSM/EC2 writes, ~1,800/day observed) covered barely an hour before filtering
+  to EUC sources. Now:
+  - Single-service queries additionally look up **~2 dozen curated mutation event names**
+    (CreateFleet, UpdateStack, TerminateWorkspaces, DeletePortal, ...) directly — each EventName
+    lookup spans the full window regardless of account noise; results merged and deduped.
+  - Every response reports **honest coverage**: `window_fully_covered` and `scanned_back_to`,
+    plus an explicit PARTIAL WINDOW COVERAGE note telling the assistant not to conclude "no
+    changes" from an incomplete scan.
+  - The sweep caps against EUC events found (not raw), with a page budget and 2 TPS pacing;
+    the tool now runs off the event loop (`asyncio.to_thread`).
+  Live re-test of the failing query: all 10 real changes returned in ~26 s, including the
+  buried creates.
+- **On-Demand fleet costs overstated ~8-10x** — an assistant estimated an idle 2-instance
+  On-Demand fleet at ~$317/mo using `monthly_usd_24x7`; actual CE charges were ~$0.05/hr
+  (2 x $0.025 stopped-instance fee), ~$38/mo. `get_euc_service_prices` (applications) now
+  returns `on_demand_stopped_hourly_usd` (Price List `instanceFunction=StoppedFleetInstance`)
+  and a billing-model note per fleet type: ALWAYS_ON bills 24/7; ON_DEMAND bills streaming
+  hours + stopped fee while idle; ELASTIC bills streaming hours only; builders bill full rate
+  while RUNNING. SERVER_INSTRUCTIONS gained a matching CRITICAL block (including "check the
+  creation date before attributing a full month of cost").
+
 ## [0.1.17] - 2026-07-03
 
 Polish from the v0.1.16 live-validation round (no new tools; 30 tools unchanged).

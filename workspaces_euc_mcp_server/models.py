@@ -587,6 +587,17 @@ class AuditTrailReport(BaseModel):
     region: str | None = None
     lookback_days: int = 7
     include_read_only: bool = False
+    window_fully_covered: bool = Field(
+        default=True,
+        description="False when the event-history scan hit its page budget before reaching the "
+        "start of the window — older events may exist that were NOT seen. Never claim 'no "
+        "changes in the window' when this is False.",
+    )
+    scanned_back_to: str | None = Field(
+        default=None,
+        description="Oldest event time the account-wide scan actually reached (the curated "
+        "per-service mutation event names are always scanned across the full window).",
+    )
     total_events: int = 0
     by_event_name: dict[str, int] = Field(default_factory=dict)
     by_user: dict[str, int] = Field(default_factory=dict)
