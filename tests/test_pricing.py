@@ -143,6 +143,63 @@ def test_appstream_stopped_instance_fee_parsed():
     assert pricing.appstream_stopped_instance_fee(factory, "mars-1") is None
 
 
+def test_resolve_fleet_pricing_inputs_gets_platform_from_image():
+    # DescribeFleets omits Platform for non-Elastic fleets — the resolver must follow the
+    # fleet's image to find WINDOWS_11 (BYOL rate), the regression from live validation.
+    appstream = types.SimpleNamespace(
+        describe_fleets=lambda **kw: {
+            "Fleets": [
+                {
+                    "Name": kw["Names"][0],
+                    "FleetType": "ON_DEMAND",
+                    "InstanceType": "stream.standard.large",
+                    "ImageArn": "arn:aws:appstream:ap-southeast-1:1:image/Windows_11_25H2",
+                    "ComputeCapacityStatus": {"Desired": 2},
+                }
+            ]
+        },
+        describe_images=lambda **kw: {"Images": [{"Platform": "WINDOWS_11"}]},
+    )
+    factory = FakeFactory({"appstream": appstream})
+
+    resolved = pricing.resolve_fleet_pricing_inputs(factory, "ap-southeast-1", "windows-11-fleet")
+
+    assert resolved is not None
+    assert resolved["platform"] == "WINDOWS_11"  # -> BYOL SKU, $0.217 not $0.24
+    assert resolved["instance_type"] == "stream.standard.large"
+    assert resolved["fleet_type"] == "ON_DEMAND"
+    assert resolved["instance_function"] == "Fleet"
+    assert resolved["desired_capacity"] == 2
+
+
+def test_resolve_fleet_pricing_inputs_none_for_missing_fleet():
+    appstream = types.SimpleNamespace(describe_fleets=lambda **kw: {"Fleets": []})
+    factory = FakeFactory({"appstream": appstream})
+    assert pricing.resolve_fleet_pricing_inputs(factory, "ap-southeast-1", "nope") is None
+
+
+def test_resolve_fleet_elastic_uses_fleet_platform_and_function():
+    appstream = types.SimpleNamespace(
+        describe_fleets=lambda **kw: {
+            "Fleets": [
+                {
+                    "Name": kw["Names"][0],
+                    "FleetType": "ELASTIC",
+                    "Platform": "WINDOWS_SERVER_2022",
+                    "InstanceType": "stream.standard.large",
+                }
+            ]
+        },
+    )
+    factory = FakeFactory({"appstream": appstream})
+
+    resolved = pricing.resolve_fleet_pricing_inputs(factory, "ap-southeast-1", "el")
+
+    assert resolved is not None
+    assert resolved["platform"] == "WINDOWS_SERVER_2022"  # no image call needed
+    assert resolved["instance_function"] == "ElasticFleet"
+
+
 def test_get_workspace_prices_all_none_when_storage_unmatched():
     # Query succeeds but no SKU carries the requested pairing -> truthy tuple of Nones,
     # which is the case the tool-level near-miss fallback keys off.

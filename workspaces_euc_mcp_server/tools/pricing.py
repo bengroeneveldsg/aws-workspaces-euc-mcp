@@ -281,6 +281,53 @@ def appstream_hourly_price(
     return price
 
 
+def resolve_fleet_pricing_inputs(
+    factory: ClientFactory, region: str | None, fleet_name: str
+) -> dict[str, Any] | None:
+    """Resolve a fleet's pricing inputs from the live fleet definition.
+
+    DescribeFleets omits Platform for non-Elastic fleets, so the platform is resolved from the
+    fleet's IMAGE — that is what distinguishes BYOL Windows 10/11 rates from included-license
+    Windows Server rates (~10% apart).
+    """
+    try:
+        appstream = factory.client("appstream", region=region)
+        fleets = appstream.describe_fleets(Names=[fleet_name]).get("Fleets", [])
+        if not fleets:
+            return None
+        f = fleets[0]
+        platform = f.get("Platform")
+        if not platform:
+            image_kwargs: dict[str, Any] = {}
+            if f.get("ImageArn"):
+                image_kwargs = {"Arns": [f["ImageArn"]]}
+            elif f.get("ImageName"):
+                image_kwargs = {"Names": [f["ImageName"]]}
+            if image_kwargs:
+                images = appstream.describe_images(**image_kwargs).get("Images", [])
+                if images:
+                    platform = images[0].get("Platform")
+        fleet_type = f.get("FleetType")
+        if fleet_type == "ELASTIC":
+            function = "ElasticFleet"
+        elif (f.get("MaxSessionsPerInstance") or 1) > 1:
+            function = "MultiSessionFleet"
+        else:
+            function = "Fleet"
+        return {
+            "fleet_name": fleet_name,
+            "fleet_type": fleet_type,
+            "instance_type": f.get("InstanceType"),
+            "platform": platform,
+            "instance_function": function,
+            "desired_capacity": (f.get("ComputeCapacityStatus") or {}).get("Desired"),
+            "image": f.get("ImageName") or f.get("ImageArn"),
+        }
+    except Exception as exc:  # best-effort; never fail the caller
+        logger.warning("Fleet pricing resolution failed for {}: {}", fleet_name, exc)
+        return None
+
+
 def appstream_stopped_instance_fee(factory: ClientFactory, region: str | None) -> float | None:
     """$/hour for a provisioned-but-idle On-Demand fleet instance (instance-type-agnostic SKU)."""
     location = _REGION_LOCATIONS.get(region or "")
@@ -403,6 +450,7 @@ def register(mcp, factory: ClientFactory) -> None:
     async def get_euc_service_prices(
         service: Literal["applications", "secure-browser", "core", "personal"],
         region: str | None = None,
+        fleet_name: str | None = None,
         instance_type: str | None = None,
         instance_function: Literal[
             "Fleet", "ImageBuilder", "AppBlockBuilder", "ElasticFleet", "MultiSessionFleet"
@@ -417,12 +465,15 @@ def register(mcp, factory: ClientFactory) -> None:
 
         ALWAYS use this instead of estimating prices from memory — rates vary by region and
         license model. Coverage:
-        - applications: $/hour for a WorkSpaces Applications (AppStream) instance — needs
-          instance_type (e.g. stream.standard.large), instance_function, and the platform
-          (WINDOWS_SERVER_* = included license; WINDOWS_10/11 = BYOL, cheaper). Also returns
-          derived $/day and $/month (730 h) and on_demand_stopped_hourly_usd. The 24x7 figures
-          apply to ALWAYS_ON fleets and RUNNING builders only; ON_DEMAND fleets bill the full
-          rate only while streaming plus the stopped-instance fee while provisioned idle.
+        - applications: $/hour for a WorkSpaces Applications (AppStream) instance. PREFER passing
+          fleet_name — the tool then resolves instance_type, fleet type, capacity, and the
+          platform from the fleet's IMAGE (DescribeFleets omits Platform for non-Elastic fleets;
+          WINDOWS_10/11 images = BYOL, cheaper than WINDOWS_SERVER_* included license) and adds
+          idle_monthly_usd / provisioned_monthly_usd estimates. Otherwise pass instance_type,
+          instance_function, and platform explicitly. Also returns derived $/day and $/month
+          (730 h) and on_demand_stopped_hourly_usd. The 24x7 figures apply to ALWAYS_ON fleets
+          and RUNNING builders only; ON_DEMAND fleets bill the full rate only while streaming
+          plus the stopped-instance fee while provisioned idle.
         - secure-browser: $/monthly-active-user per portal tier (standard.regular/large/xlarge).
         - core: managed-instance fee SKUs for an instance type — one SKU per billing option
           (hourly vs monthly). The account bills whichever billing option it is configured for;
@@ -434,6 +485,8 @@ def register(mcp, factory: ClientFactory) -> None:
         Args:
             service: Which EUC service to price.
             region: AWS region the resources run in. Defaults to the server's configured region.
+            fleet_name: Applications fleet to price — auto-resolves instance type, platform
+                (BYOL-aware, from the fleet's image), fleet type, and capacity estimates.
             instance_type: Streaming/managed instance type (applications, core).
             instance_function: Applications instance role (default Fleet).
             platform: Applications platform enum (e.g. WINDOWS_SERVER_2025, WINDOWS_11).
@@ -458,21 +511,49 @@ def register(mcp, factory: ClientFactory) -> None:
                 )
                 return base
             if service == "applications":
-                hourly = appstream_hourly_price(
-                    factory, target_region, instance_type, instance_function, platform
-                )
+                itype, ifunc, iplat = instance_type, instance_function, platform
+                fleet_info: dict[str, Any] | None = None
+                if fleet_name:
+                    fleet_info = resolve_fleet_pricing_inputs(factory, target_region, fleet_name)
+                    if fleet_info:
+                        itype = itype or fleet_info["instance_type"]
+                        iplat = iplat or fleet_info["platform"]
+                        if instance_function == "Fleet":
+                            ifunc = fleet_info["instance_function"]
+                        base["fleet"] = fleet_info
+                    else:
+                        base["notes"].append(
+                            f"Fleet '{fleet_name}' was not found in {target_region}; pricing "
+                            "from the explicit parameters only."
+                        )
+                hourly = appstream_hourly_price(factory, target_region, itype, ifunc, iplat)
                 stopped_fee = appstream_stopped_instance_fee(factory, target_region)
                 base.update(
                     {
-                        "instance_type": instance_type,
-                        "instance_function": instance_function,
-                        "operating_system": _appstream_os_for_platform(platform),
+                        "instance_type": itype,
+                        "instance_function": ifunc,
+                        "operating_system": _appstream_os_for_platform(iplat),
                         "hourly_usd": hourly,
                         "daily_usd_24x7": round(hourly * 24, 2) if hourly else None,
                         "monthly_usd_24x7": round(hourly * 730, 2) if hourly else None,
                         "on_demand_stopped_hourly_usd": stopped_fee,
                     }
                 )
+                if fleet_info and hourly is not None:
+                    desired = fleet_info.get("desired_capacity") or 0
+                    if fleet_info.get("fleet_type") == "ALWAYS_ON" and desired:
+                        base["provisioned_monthly_usd"] = round(hourly * 730 * desired, 2)
+                        base["notes"].append(
+                            f"provisioned_monthly_usd = {desired} ALWAYS_ON instance(s) x 730 h "
+                            "x hourly_usd — this fleet bills 24/7 regardless of usage."
+                        )
+                    elif fleet_info.get("fleet_type") == "ON_DEMAND" and desired and stopped_fee:
+                        base["idle_monthly_usd"] = round(stopped_fee * 730 * desired, 2)
+                        base["notes"].append(
+                            f"idle_monthly_usd = {desired} ON_DEMAND instance(s) x 730 h x the "
+                            "stopped-instance fee — the cost floor with zero streaming; add "
+                            "hourly_usd per actual streaming hour."
+                        )
                 base["notes"].append(
                     "BILLING MODEL BY FLEET TYPE — do not apply the 24x7 figures blindly: "
                     "ALWAYS_ON fleets bill hourly_usd 24/7 per provisioned instance "
@@ -483,6 +564,10 @@ def register(mcp, factory: ClientFactory) -> None:
                     "time they are RUNNING (24x7 figures apply). For actuals use "
                     "get_euc_cost_summary, and never extrapolate a full month for a resource "
                     "created mid-month."
+                )
+                base["notes"].append(
+                    "The On-Demand stopped-instance fee is one flat SKU per region — it does "
+                    "NOT vary by instance type."
                 )
                 if hourly is None:
                     base["notes"].append(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
@@ -35,6 +36,20 @@ from ._common import LookbackDays, MaxEvents, Percentage, paginate, read_only, t
 _CLOUDTRAIL_MAX_LOOKBACK = 90  # LookupEvents only retains 90 days.
 _SWEEP_PAGE_BUDGET = 12  # account-wide sweep: up to 12 pages (600 events) before giving up
 _LOOKUP_PACING_SECONDS = 0.51  # LookupEvents is throttled at 2 requests/second per region
+
+# The 2 TPS limit is shared account-wide, so pacing must span tool calls too — back-to-back
+# per-service audits (a common assistant pattern) otherwise throttle each other's first pages.
+_lookup_pacer_lock = threading.Lock()
+_last_lookup_at = 0.0
+
+
+def _pace_lookup() -> None:
+    global _last_lookup_at
+    with _lookup_pacer_lock:
+        wait = _LOOKUP_PACING_SECONDS - (time.monotonic() - _last_lookup_at)
+        if wait > 0:
+            time.sleep(wait)
+        _last_lookup_at = time.monotonic()
 
 
 # --------------------------------------------------------------------------- audit trail
@@ -118,9 +133,8 @@ def _lookup_paged(
     oldest: datetime | None = None
     covered = False
     page_token: str | None = None
-    for page in range(page_budget):
-        if page:
-            time.sleep(_LOOKUP_PACING_SECONDS)
+    for _page in range(page_budget):
+        _pace_lookup()
         kwargs: dict[str, Any] = {
             "LookupAttributes": [attr],
             "StartTime": start,
@@ -209,7 +223,6 @@ def get_euc_audit_trail_core(
         targeted_names = consts.EUC_AUDIT_MUTATION_EVENT_NAMES.get(service, [])
         if targeted_names:
             for name in targeted_names:
-                time.sleep(_LOOKUP_PACING_SECONDS)
                 name_attr = {"AttributeKey": "EventName", "AttributeValue": name}
                 matched, _, _ = _lookup_paged(
                     trail, name_attr, start, end, sources, max_events, 3, errors

@@ -6,11 +6,20 @@
 from __future__ import annotations
 
 import json
+import time
 import types
 from datetime import UTC, datetime
 
+import pytest
+
 from workspaces_euc_mcp_server import consts
 from workspaces_euc_mcp_server.tools import governance
+
+
+@pytest.fixture(autouse=True)
+def _no_lookup_pacing(monkeypatch):
+    """Disable the global 2 TPS LookupEvents pacer so tests don't sleep."""
+    monkeypatch.setattr(governance, "_LOOKUP_PACING_SECONDS", 0)
 
 
 class FakeFactory:
@@ -162,6 +171,16 @@ def test_audit_trail_service_all_skips_targeted_lookups():
     governance.get_euc_audit_trail_core(factory, "ap-southeast-1", service="all")
 
     assert seen_attrs == ["ReadOnly"]  # sweep only; no per-event-name calls for "all"
+
+
+def test_lookup_pacer_spaces_consecutive_calls(monkeypatch):
+    # The pacer is shared module state, so consecutive tool calls are spaced too.
+    monkeypatch.setattr(governance, "_LOOKUP_PACING_SECONDS", 0.05)
+    monkeypatch.setattr(governance, "_last_lookup_at", 0.0)
+    governance._pace_lookup()  # first call: no wait
+    t0 = time.monotonic()
+    governance._pace_lookup()  # second call must wait out the pacing interval
+    assert time.monotonic() - t0 >= 0.04
 
 
 def test_audit_trail_lookback_capped_at_90():
