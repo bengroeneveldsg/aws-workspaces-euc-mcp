@@ -325,6 +325,12 @@ root/user storage — prices differ per combination. Then use get_euc_service_pr
 AUTO_STOP, users above it on ALWAYS_ON; users near it are a coin-flip and deserve a caveat, not a
 confident pick.
 
+CRITICAL — Windows 11 (and Windows 10) on WorkSpaces Personal is ALWAYS BYOL: customer-provided
+licenses, dedicated tenancy, and separate hardware-only price SKUs that DIFFER from the
+included-license Windows Server rates. get_euc_service_prices is license-aware (pass
+operating_system WINDOWS_11 vs WINDOWS_SERVER_*) — query both before comparing them, and never
+tell a user the two cost the same.
+
 CRITICAL — WorkSpaces Applications fleet costs depend on the FLEET TYPE; never quote 24x7 rates
 for On-Demand capacity:
 - ALWAYS_ON fleets bill the instance hourly rate 24/7 for every provisioned instance.

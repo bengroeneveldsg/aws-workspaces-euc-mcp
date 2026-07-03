@@ -5,6 +5,28 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-07-03
+
+From live validation: a Windows Server 2025 vs Windows 11 price comparison came back "identical"
+— because the Personal pricing path hardcoded license=Included, silently returning Windows Server
+rates for Windows 11 queries. Windows 10/11 on WorkSpaces Personal is ALWAYS BYOL with separate
+hardware-only SKUs. No new tools; 30 unchanged.
+
+### Fixed
+- **Personal pricing is license-aware.** `get_workspace_prices` / `list_workspace_bundle_skus`
+  resolve Windows 10/11 (and BYOL-named bundles) against `license="Bring Your Own License"` SKUs
+  — dropping the operatingSystem filter there, since BYOL SKUs carry os "Windows" OR "Any".
+  Verified live (Power, Singapore): BYOL \$120/mo AlwaysOn + \$26/\$0.95 AutoStop vs Included
+  \$124/\$26/\$0.99; the 80/10 BYOL hourly is \$0.76 vs \$0.95 Included (20% apart). This also
+  makes `recommend_running_mode` savings estimates accurate for Windows 11 desktops.
+
+### Added
+- `get_euc_service_prices` (personal) returns `license_model` plus a LICENSE MODEL note: BYOL
+  responses call out the bring-your-own-licenses + dedicated-tenancy requirements; Included
+  responses remind the assistant to re-query with WINDOWS_11 if the user means the client OS.
+- SERVER_INSTRUCTIONS: CRITICAL block — Windows 10/11 Personal is always BYOL with different
+  rates; query both license models before comparing, never claim they cost the same.
+
 ## [0.1.21] - 2026-07-03
 
 Pricing hardening, informed by a review of the awslabs aws-pricing-mcp-server patterns and a live
