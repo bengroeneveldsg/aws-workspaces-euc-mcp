@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.20] - 2026-07-03
+
+From live validation: a sizing question ("10 WorkSpaces on Server 2025, 6 used 30 h/mo, 4 used
+100 h/mo") was answered with Applications fleet pricing instead of Personal bundles, with no
+clarifying questions and no running-mode tipping point. No new tools; 30 unchanged.
+
+### Added
+- `get_euc_service_prices` (personal) returns **`autostop_breakeven_hours_per_month`** — the
+  connected hours/month where AUTO_STOP (base + hourly) and ALWAYS_ON (flat) cost the same —
+  plus a RUNNING-MODE TIPPING POINT note. Pre-computed because models mis-derive tipping points
+  from raw rates. (Power/SIN example: ~99 h/mo — a 100 h/mo user is a coin-flip, not a clear
+  ALWAYS_ON.)
+
+### Changed
+- SERVER_INSTRUCTIONS: sizing/provisioning questions phrased per-user ("N WorkSpaces for users
+  with X hours/month") mean WorkSpaces **Personal** unless fleets/pools are explicitly named;
+  the assistant should ask for bundle/OS/storage (or state assumptions) before quoting, and use
+  the break-even to assign running modes — flagging near-tipping-point users as a coin-flip.
+- Personal pricing docstring: ask for bundle/OS/storage rather than assuming.
+
 ## [0.1.19] - 2026-07-03
 
 Polish from the v0.1.18 validation round. No new tools; 30 unchanged.

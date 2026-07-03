@@ -98,6 +98,24 @@ def test_savings_none_when_no_prices():
     assert pricing.estimate_alwayson_to_autostop_savings(None, 0, 14) is None
 
 
+def test_autostop_breakeven_hours():
+    # Power SIN: AlwaysOn 124, AutoStop 26 + 0.99/h -> (124-26)/0.99 = 99.0 hrs/month.
+    # A 100 hrs/month user sits right at the tipping point (the live-validation case).
+    prices = pricing.WorkspacePrices(
+        alwayson_monthly=124.0, autostop_monthly_base=26.0, autostop_hourly=0.99
+    )
+    assert pricing.autostop_breakeven_hours(prices) == 99.0
+
+
+def test_autostop_breakeven_none_when_rates_missing():
+    assert pricing.autostop_breakeven_hours(None) is None
+    assert pricing.autostop_breakeven_hours(pricing.WorkspacePrices(124.0, 26.0, None)) is None
+    # Zero hourly must not divide-by-zero.
+    assert pricing.autostop_breakeven_hours(pricing.WorkspacePrices(124.0, 26.0, 0.0)) is None
+    # Base above AlwaysOn (nonsense data) -> no breakeven rather than a negative number.
+    assert pricing.autostop_breakeven_hours(pricing.WorkspacePrices(20.0, 26.0, 0.99)) is None
+
+
 def test_bundle_sku_listing_groups_by_storage():
     # The Price List fake only knows Root:175/User:100 SKUs; the listing should surface that
     # pairing with all three price points, regardless of what storage the caller wanted.
