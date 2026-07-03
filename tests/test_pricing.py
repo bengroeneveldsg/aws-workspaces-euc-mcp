@@ -65,6 +65,7 @@ def _fake_pricing(storage="Root:175 GB,User:100 GB"):
 
 def setup_function(_):
     pricing._cache.clear()
+    pricing._generic_cache.clear()
 
 
 def test_get_workspace_prices_parses_alwayson_and_autostop():
@@ -95,3 +96,30 @@ def test_savings_for_unused_alwayson_desktop():
 
 def test_savings_none_when_no_prices():
     assert pricing.estimate_alwayson_to_autostop_savings(None, 0, 14) is None
+
+
+def test_bundle_sku_listing_groups_by_storage():
+    # The Price List fake only knows Root:175/User:100 SKUs; the listing should surface that
+    # pairing with all three price points, regardless of what storage the caller wanted.
+    factory = FakeFactory({"pricing": _fake_pricing()})
+    skus = pricing.list_workspace_bundle_skus(factory, "ap-southeast-1", "WINDOWS_11", "POWER")
+
+    assert len(skus) == 1
+    assert skus[0]["storage"] == "Root:175 GB,User:100 GB"
+    assert skus[0]["alwayson_monthly_usd"] == 124.0
+    assert skus[0]["autostop_monthly_base_usd"] == 26.0
+    assert skus[0]["autostop_hourly_usd"] == 0.99
+
+
+def test_bundle_sku_listing_empty_for_unknown_region():
+    factory = FakeFactory({"pricing": _fake_pricing()})
+    assert pricing.list_workspace_bundle_skus(factory, "mars-1", "WINDOWS_11", "POWER") == []
+
+
+def test_get_workspace_prices_all_none_when_storage_unmatched():
+    # Query succeeds but no SKU carries the requested pairing -> truthy tuple of Nones,
+    # which is the case the tool-level near-miss fallback keys off.
+    factory = FakeFactory({"pricing": _fake_pricing()})
+    p = pricing.get_workspace_prices(factory, "ap-southeast-1", "WINDOWS_11", "POWER", 80, 50)
+    assert p is not None
+    assert all(v is None for v in p)

@@ -138,14 +138,14 @@ and return a synthesized result, not raw API passthroughs.
 |---|---|---|
 | `analyze_workspace_utilization` | Find idle/unused Personal WorkSpaces from connection metrics | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
 | `recommend_running_mode` | AlwaysOn → AutoStop candidates with a $ estimate | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData`, `pricing:GetProducts` |
-| `get_euc_service_prices` | Authoritative Price List rates for all four services (Applications hourly incl. BYOL, Secure Browser MAU tiers, Core fee SKUs, Personal bundles) | `pricing:GetProducts` |
+| `get_euc_service_prices` | Authoritative Price List rates for all four services (Applications hourly incl. BYOL, Secure Browser MAU tiers, Core fee SKUs per billing option, Personal bundles + near-miss storage listing when the exact pairing has no SKU) | `pricing:GetProducts` |
 | `recommend_bundle_rightsizing` | Over/under-sized bundles from native CPU/mem metrics (see §10) | `workspaces:DescribeWorkspaces`, `workspaces:DescribeWorkspaceBundles`, `cloudwatch:GetMetricData` |
 | `get_workspace_performance` | Per-WorkSpace CPU/mem/GPU/FPS/latency from native `AWS/WorkSpaces` metrics | `workspaces:DescribeWorkspaces`, `cloudwatch:GetMetricData` |
 | `get_workspace_connection_history` | Per-WorkSpace connection timeline | `workspaces:DescribeWorkspaces*`, `cloudwatch:GetMetricData` |
 | `get_pool_session_history` | Pool session/capacity history | `workspaces:DescribeWorkspacesPool*`, `cloudwatch:GetMetricData` |
 | `get_application_fleet_usage` | Applications fleet utilization vs capacity | `appstream:DescribeFleets`, `cloudwatch:GetMetricData` |
 | `get_euc_cost_summary` | EUC spend by service + WorkSpaces Personal/Pools/Core split (USAGE_TYPE) + daily/monthly time series | `ce:GetCostAndUsage` |
-| `get_euc_cost_forecast` | Forecast upcoming EUC spend (80% prediction interval), filtered to discovered EUC services | `ce:GetCostForecast`, `ce:GetCostAndUsage` |
+| `get_euc_cost_forecast` | Forecast upcoming EUC spend (80% prediction interval), filtered to discovered EUC services; flags an elevated recent run-rate that may inflate the forecast | `ce:GetCostForecast`, `ce:GetCostAndUsage` |
 | `compare_euc_costs` | Two-window comparison: totals, per-service deltas, usage-type drivers of the change | `ce:GetCostAndUsage` |
 
 **Secure Browser**

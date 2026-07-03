@@ -450,6 +450,34 @@ def get_euc_cost_summary_core(
     )
 
 
+def _daily_run_rate(
+    cost_explorer: Any, services: list[str], errors: list[ServiceError]
+) -> tuple[float | None, float | None]:
+    """(last-7-day, trailing-30-day) average daily EUC spend, for forecast sanity context."""
+    end_d = datetime.now(UTC).date()
+    start_d = end_d - timedelta(days=30)
+    resp = try_call(
+        errors,
+        "AWS Cost Explorer",
+        "GetCostAndUsage",
+        lambda: cost_explorer.get_cost_and_usage(
+            TimePeriod={"Start": start_d.isoformat(), "End": end_d.isoformat()},
+            Granularity="DAILY",
+            Metrics=["UnblendedCost"],
+            Filter={"Dimensions": {"Key": "SERVICE", "Values": services}},
+        ),
+        default={},
+    )
+    daily = [
+        float(p.get("Total", {}).get("UnblendedCost", {}).get("Amount", 0) or 0)
+        for p in (resp or {}).get("ResultsByTime", [])
+    ]
+    if not daily:
+        return None, None
+    recent = daily[-7:]
+    return round(sum(recent) / len(recent), 2), round(sum(daily) / len(daily), 2)
+
+
 def get_euc_cost_forecast_core(
     factory: ClientFactory,
     days_ahead: int = 30,
@@ -492,6 +520,20 @@ def get_euc_cost_forecast_core(
         default={},
     )
 
+    recent_avg, trailing_avg = _daily_run_rate(cost_explorer, services, errors)
+    notes = [
+        "Forecast is Cost Explorer's model (80% prediction interval) over the discovered EUC "
+        "services; it needs sufficient usage history and reflects current usage patterns.",
+    ]
+    if recent_avg is not None and trailing_avg and recent_avg > trailing_avg * 1.3:
+        pct = (recent_avg / trailing_avg - 1) * 100
+        notes.append(
+            f"Recent run-rate is elevated: the last 7 days averaged ${recent_avg:,.2f}/day vs "
+            f"${trailing_avg:,.2f}/day over the trailing 30 days (+{pct:.0f}%). The forecast "
+            "extrapolates current usage, so transient resources (e.g. RUNNING image builders or "
+            "temporarily busy fleets) can inflate it — re-check after stopping them."
+        )
+
     total = (resp or {}).get("Total", {})
     by_period = [
         ForecastPeriod(
@@ -515,11 +557,10 @@ def get_euc_cost_forecast_core(
         forecast_total=round(float(total["Amount"]), 2) if total.get("Amount") else None,
         by_period=by_period,
         filtered_services=services,
+        recent_7d_daily_avg=recent_avg,
+        trailing_30d_daily_avg=trailing_avg,
         errors=errors,
-        notes=[
-            "Forecast is Cost Explorer's model (80% prediction interval) over the discovered EUC "
-            "services; it needs sufficient usage history and reflects current usage patterns.",
-        ],
+        notes=notes,
     )
 
 

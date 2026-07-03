@@ -135,6 +135,64 @@ def get_workspace_prices(
     return prices
 
 
+def list_workspace_bundle_skus(
+    factory: ClientFactory,
+    region: str | None,
+    operating_system: str | None,
+    compute_type: str | None,
+) -> list[dict]:
+    """Every storage pairing AWS prices for a region/OS/compute (near-miss fallback listing)."""
+    location = _REGION_LOCATIONS.get(region or "")
+    os_value = _os_filter(operating_system)
+    bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
+    if not (location and os_value and bundle):
+        return []
+    key = ("personal-skus", location, os_value, bundle)
+    if key in _generic_cache:
+        return list(_generic_cache[key])  # type: ignore[arg-type]
+    by_storage: dict[str, dict] = {}
+    try:
+        pricing = factory.client("pricing", region=_PRICING_REGION)
+        for running_mode in ("AlwaysOn", "AutoStop"):
+            resp = pricing.get_products(
+                ServiceCode="AmazonWorkSpaces",
+                Filters=[
+                    {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+                    {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
+                    {"Type": "TERM_MATCH", "Field": "license", "Value": "Included"},
+                    {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
+                    {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode},
+                ],
+                MaxResults=100,
+            )
+            for raw in resp.get("PriceList", []):
+                product = json.loads(raw)
+                storage = product["product"]["attributes"].get("storage")
+                if not storage:
+                    continue
+                entry = by_storage.setdefault(storage, {"storage": storage})
+                for term in product.get("terms", {}).get("OnDemand", {}).values():
+                    for pd in term["priceDimensions"].values():
+                        unit = (pd.get("unit") or "").lower()
+                        usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                        if usd <= 0:
+                            continue
+                        if running_mode == "AlwaysOn" and unit == "month":
+                            entry["alwayson_monthly_usd"] = usd
+                        elif running_mode == "AutoStop" and unit == "hour":
+                            entry["autostop_hourly_usd"] = usd
+                        elif running_mode == "AutoStop" and unit == "month":
+                            entry["autostop_monthly_base_usd"] = usd
+    except Exception as exc:  # best-effort; never fail the caller
+        logger.warning(
+            "Bundle SKU listing failed for {} {} {}: {}", location, os_value, bundle, exc
+        )
+        return []
+    out = sorted(by_storage.values(), key=lambda e: e["storage"])
+    _generic_cache[key] = out
+    return out
+
+
 def _estimated_monthly_hours(active_days: int | None, lookback_days: int) -> float:
     """Rough monthly connected-hours estimate from active days (assume ~8h per active day)."""
     if not active_days or lookback_days <= 0:
@@ -328,8 +386,9 @@ def register(mcp, factory: ClientFactory) -> None:
           (WINDOWS_SERVER_* = included license; WINDOWS_10/11 = BYOL, cheaper). Also returns
           derived $/day and $/month (730 h).
         - secure-browser: $/monthly-active-user per portal tier (standard.regular/large/xlarge).
-        - core: managed-instance fee SKUs for an instance type (monthly/hourly variants by
-          billing option).
+        - core: managed-instance fee SKUs for an instance type — one SKU per billing option
+          (hourly vs monthly). The account bills whichever billing option it is configured for;
+          do NOT assume the monthly fee applies.
         - personal: AlwaysOn monthly + AutoStop base/hourly for a bundle — needs compute_type,
           operating_system, root_volume_gib, user_volume_gib.
         Needs pricing:GetProducts (IAM Tier 1). Read-only.
@@ -391,8 +450,11 @@ def register(mcp, factory: ClientFactory) -> None:
                 else:
                     base["skus"] = core_instance_prices(factory, target_region, instance_type)
                     base["notes"].append(
-                        "Core Managed Instances: the management fee SKUs above; the underlying "
-                        "EC2/EBS costs bill separately on EC2."
+                        "Core Managed Instances: one management-fee SKU per billing option "
+                        "(hourly vs monthly) — the account bills whichever option it is "
+                        "configured for, so do not assume the monthly fee. Compare actuals "
+                        "(get_euc_cost_summary workspaces_breakdown) to see which applies. "
+                        "Underlying EC2/EBS costs bill separately on EC2."
                     )
             else:  # personal
                 prices = get_workspace_prices(
@@ -412,11 +474,24 @@ def register(mcp, factory: ClientFactory) -> None:
                         "autostop_hourly_usd": prices.autostop_hourly if prices else None,
                     }
                 )
-                if not prices:
+                # prices can be a successful query with no matching storage pairing (all-None
+                # fields), which needs the same fallback as invalid inputs.
+                if prices is None or all(p is None for p in prices):
                     base["notes"].append(
                         "No clean bundle match (needs compute_type, operating_system and both "
                         "volume sizes; Included-license SKUs only)."
                     )
+                    nearby = list_workspace_bundle_skus(
+                        factory, target_region, operating_system, compute_type
+                    )
+                    if nearby:
+                        base["available_storage_configurations"] = nearby
+                        base["notes"].append(
+                            "AWS does not price the requested storage pairing for this "
+                            "compute/OS; available_storage_configurations lists the pairings "
+                            "it does price. Do NOT present any of them as the price for the "
+                            "requested sizes — say the exact configuration has no list SKU."
+                        )
             return base
 
         return await asyncio.to_thread(_lookup)

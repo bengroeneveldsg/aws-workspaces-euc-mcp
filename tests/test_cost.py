@@ -408,6 +408,61 @@ def test_cost_forecast_filters_to_discovered_euc_services():
     assert forecast.filtered_services == ["Amazon WorkSpaces"]
 
 
+def _forecast_ce(daily_amounts: list[str]):
+    """Cost Explorer fake serving discovery (MONTHLY+GroupBy) and run-rate (DAILY) calls."""
+
+    def get_cost_and_usage(**kwargs):
+        if kwargs.get("Granularity") == "DAILY":
+            return {
+                "ResultsByTime": [
+                    {"Total": {"UnblendedCost": {"Amount": a, "Unit": "USD"}}}
+                    for a in daily_amounts
+                ]
+            }
+        return {
+            "ResultsByTime": [
+                {
+                    "Groups": [
+                        {
+                            "Keys": ["Amazon WorkSpaces"],
+                            "Metrics": {"UnblendedCost": {"Amount": "500", "Unit": "USD"}},
+                        }
+                    ]
+                }
+            ]
+        }
+
+    def get_cost_forecast(**_):
+        return {"Total": {"Amount": "5000", "Unit": "USD"}, "ForecastResultsByTime": []}
+
+    return types.SimpleNamespace(
+        get_cost_and_usage=get_cost_and_usage, get_cost_forecast=get_cost_forecast
+    )
+
+
+def test_cost_forecast_flags_elevated_recent_run_rate():
+    # 23 quiet days at $10 then 7 hot days at $50 -> recent 7d avg is ~2.6x baseline.
+    ce = _forecast_ce(["10"] * 23 + ["50"] * 7)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    forecast = cost.get_euc_cost_forecast_core(factory)
+
+    assert forecast.recent_7d_daily_avg == 50.0
+    assert forecast.trailing_30d_daily_avg == round((23 * 10 + 7 * 50) / 30, 2)
+    assert any("elevated" in n for n in forecast.notes)
+
+
+def test_cost_forecast_steady_run_rate_gets_no_warning():
+    ce = _forecast_ce(["20"] * 30)
+    factory = FakeFactory({consts.COST_EXPLORER_API: ce})
+
+    forecast = cost.get_euc_cost_forecast_core(factory)
+
+    assert forecast.recent_7d_daily_avg == 20.0
+    assert forecast.trailing_30d_daily_avg == 20.0
+    assert not any("elevated" in n for n in forecast.notes)
+
+
 def test_cost_forecast_without_history_returns_note_not_error():
     ce = types.SimpleNamespace(get_cost_and_usage=lambda **_: {"ResultsByTime": []})
     factory = FakeFactory({consts.COST_EXPLORER_API: ce})

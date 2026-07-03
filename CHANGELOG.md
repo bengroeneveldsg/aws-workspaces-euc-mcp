@@ -5,6 +5,31 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-07-03
+
+Polish from the v0.1.16 live-validation round (no new tools; 30 tools unchanged).
+
+### Added
+- `get_euc_cost_forecast` now returns **run-rate context** — `recent_7d_daily_avg` and
+  `trailing_30d_daily_avg` from actuals — and appends a warning note when the last 7 days run
+  well above the 30-day baseline, since Cost Explorer's forecast extrapolates current usage and
+  transient resources (e.g. RUNNING image builders) can inflate it. Observed live: a \$1,921/30d
+  estate forecast at \$5,182 during a builder-heavy week.
+- `get_euc_service_prices` (personal): when the exact storage pairing has no list SKU, the
+  response now includes `available_storage_configurations` — the pairings AWS **does** price for
+  that region/OS/compute with their AlwaysOn/AutoStop rates — explicitly labelled as near-miss
+  listings, never as the price for the requested sizes.
+
+### Fixed
+- `get_euc_service_prices` (personal): the "no clean bundle match" note now also fires when the
+  Price List query succeeds but no SKU matches the storage pairing (previously it only fired on
+  invalid inputs, leaving unexplained nulls).
+
+### Changed
+- `get_euc_service_prices` (core): docstring and response note now state that fee SKUs are listed
+  **one per billing option (hourly vs monthly)** and the account bills whichever option it is
+  configured for — assistants must not assume the monthly fee applies.
+
 ## [0.1.16] - 2026-07-03
 
 ### Added
