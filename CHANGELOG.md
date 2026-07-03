@@ -5,6 +5,29 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.21] - 2026-07-03
+
+Pricing hardening, informed by a review of the awslabs aws-pricing-mcp-server patterns and a live
+failure (Power Root:80/User:10 in Singapore has an AutoStop hourly SKU but NO published monthly
+fees — the unexplained nulls sent the assistant to web search). No new tools; 30 unchanged.
+
+### Added
+- **"Never guess values" discovery on every miss** (awslabs pattern): partial Price List data now
+  gets an explicit PARTIAL PRICE LIST DATA note ("null = unpublished, not \$0"), and
+  `available_storage_configurations` attaches on partial matches too, not only total misses.
+  Applications no-match responses now include `available_operating_systems` — the OS/license
+  variants AWS does price for that instance type + function.
+- **Multi-region comparison in one call** — `get_euc_service_prices(regions=[...])` returns a
+  `by_region` map, so "is X cheaper in Sydney?" is a single tool call.
+- **Explicit assumptions** on every pricing response: public LIST prices (private pricing /
+  EDP/PPA discounts / credits NOT reflected — Cost Explorer actuals are the discounted truth);
+  730-hour month for monthly derivations.
+- README: advisory disclaimer for pricing estimates (adapted from the awslabs server's).
+
+### Fixed
+- All Price List queries now **paginate** (`_iter_price_list`, up to 5 pages) — single-page
+  queries silently truncated at 100 products.
+
 ## [0.1.20] - 2026-07-03
 
 From live validation: a sizing question ("10 WorkSpaces on Server 2025, 6 used 30 h/mo, 4 used
