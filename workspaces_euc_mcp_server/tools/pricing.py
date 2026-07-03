@@ -193,6 +193,24 @@ def list_workspace_bundle_skus(
     return out
 
 
+def autostop_breakeven_hours(prices: WorkspacePrices | None) -> float | None:
+    """Connected hours/month above which ALWAYS_ON beats AUTO_STOP for a bundle.
+
+    AUTO_STOP costs base + hourly x hours; ALWAYS_ON is flat — they cross at
+    (alwayson - base) / hourly. Handed to the assistant pre-computed because models
+    reliably mis-derive tipping points from raw rates.
+    """
+    if (
+        not prices
+        or prices.alwayson_monthly is None
+        or prices.autostop_monthly_base is None
+        or not prices.autostop_hourly
+    ):
+        return None
+    breakeven = (prices.alwayson_monthly - prices.autostop_monthly_base) / prices.autostop_hourly
+    return round(breakeven, 1) if breakeven > 0 else None
+
+
 def _estimated_monthly_hours(active_days: int | None, lookback_days: int) -> float:
     """Rough monthly connected-hours estimate from active days (assume ~8h per active day)."""
     if not active_days or lookback_days <= 0:
@@ -479,7 +497,11 @@ def register(mcp, factory: ClientFactory) -> None:
           (hourly vs monthly). The account bills whichever billing option it is configured for;
           do NOT assume the monthly fee applies.
         - personal: AlwaysOn monthly + AutoStop base/hourly for a bundle — needs compute_type,
-          operating_system, root_volume_gib, user_volume_gib.
+          operating_system, root_volume_gib, user_volume_gib. Returns
+          autostop_breakeven_hours_per_month: below it AUTO_STOP is cheaper, above it ALWAYS_ON —
+          use it for running-mode recommendations and sizing questions ("N desktops used X
+          hours/month"). ASK for bundle/OS/storage rather than assuming when the user hasn't
+          said.
         Needs pricing:GetProducts (IAM Tier 1). Read-only.
 
         Args:
@@ -601,6 +623,7 @@ def register(mcp, factory: ClientFactory) -> None:
                     root_volume_gib,
                     user_volume_gib,
                 )
+                breakeven = autostop_breakeven_hours(prices)
                 base.update(
                     {
                         "alwayson_monthly_usd": prices.alwayson_monthly if prices else None,
@@ -608,8 +631,18 @@ def register(mcp, factory: ClientFactory) -> None:
                         if prices
                         else None,
                         "autostop_hourly_usd": prices.autostop_hourly if prices else None,
+                        "autostop_breakeven_hours_per_month": breakeven,
                     }
                 )
+                if breakeven is not None:
+                    base["notes"].append(
+                        f"RUNNING-MODE TIPPING POINT: at ~{breakeven:.0f} connected hours/month "
+                        "the two modes cost the same for this bundle. Users below it are "
+                        "cheaper on AUTO_STOP (base + hourly); users above it are cheaper on "
+                        "ALWAYS_ON (flat monthly). Compare each user's expected connected "
+                        "hours/month against this number — near the tipping point the "
+                        "difference is small either way."
+                    )
                 # prices can be a successful query with no matching storage pairing (all-None
                 # fields), which needs the same fallback as invalid inputs.
                 if prices is None or all(p is None for p in prices):

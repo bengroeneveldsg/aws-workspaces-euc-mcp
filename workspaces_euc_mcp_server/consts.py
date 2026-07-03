@@ -315,6 +315,16 @@ CRITICAL — power state vs user connections are DIFFERENT signals; do not confl
   a lookback window, NOT power state. A desktop can be AVAILABLE yet "unused". Never report a
   desktop as stopped/not running based on utilization or connection data.
 
+SIZING / PROVISIONING QUESTIONS ("I need N WorkSpaces for users with X hours/month"): per-user
+desktops with individual usage hours mean WorkSpaces PERSONAL (bundles + AUTO_STOP/ALWAYS_ON
+running modes) — NOT Applications fleets or Pools, unless the user explicitly says
+fleets/pools/streaming/Applications. Before quoting Personal costs, ASK for (or state as explicit
+assumptions): bundle/compute type (Standard/Performance/Power/...), OS + license model, and
+root/user storage — prices differ per combination. Then use get_euc_service_prices
+(service='personal'), which returns autostop_breakeven_hours_per_month: users below it belong on
+AUTO_STOP, users above it on ALWAYS_ON; users near it are a coin-flip and deserve a caveat, not a
+confident pick.
+
 CRITICAL — WorkSpaces Applications fleet costs depend on the FLEET TYPE; never quote 24x7 rates
 for On-Demand capacity:
 - ALWAYS_ON fleets bill the instance hourly rate 24/7 for every provisioned instance.
