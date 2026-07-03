@@ -37,14 +37,27 @@ _REGION_LOCATIONS = {
     "ca-central-1": "Canada (Central)",
 }
 
-# WorkSpaces compute type -> Price List "bundle" name.
+# WorkSpaces compute type -> Price List "bundle" FAMILY name. Storage variants of a compute
+# type are SEPARATE bundles suffixed -0..-3 (e.g. Power = Root:175/User:100, Power-0 = 80/10,
+# Power-1 = 80/50, Power-2 = 80/100), so the family is queried as a whole and matched on the
+# storage attribute. "... Plus" bundles are distinct software-bundled products — excluded.
 _COMPUTE_BUNDLE = {
     "VALUE": "Value",
     "STANDARD": "Standard",
     "PERFORMANCE": "Performance",
     "POWER": "Power",
     "POWERPRO": "PowerPro",
+    "GRAPHICS": "Graphics",
+    "GRAPHICSPRO": "GraphicsPro",
+    "GRAPHICS_G4DN": "Graphics.g4dn",
+    "GRAPHICSPRO_G4DN": "GraphicsPro.g4dn",
+    "GENERALPURPOSE_4XLARGE": "GeneralPurpose.4xlarge",
+    "GENERALPURPOSE_8XLARGE": "GeneralPurpose.8xlarge",
 }
+_BUNDLE_VARIANT_SUFFIXES = ("", "-0", "-1", "-2", "-3")
+# Personal SKUs live under this product family; the SAME bundle names exist again under
+# "WorkSpaces Core" with different prices, so the filter is load-bearing.
+_PERSONAL_PRODUCT_FAMILY = "Enterprise Applications"
 
 _cache: dict[tuple, WorkspacePrices | None] = {}
 
@@ -53,17 +66,6 @@ class WorkspacePrices(NamedTuple):
     alwayson_monthly: float | None
     autostop_monthly_base: float | None
     autostop_hourly: float | None
-
-
-def _os_filter(operating_system: str | None) -> str | None:
-    if not operating_system:
-        return "Windows"
-    o = operating_system.upper()
-    if "WIN" in o:
-        return "Windows"
-    if any(k in o for k in ("LINUX", "UBUNTU", "RHEL", "ROCKY", "AMAZON")):
-        return "Linux"
-    return None
 
 
 # Client-OS markers: Windows 10/11 on WorkSpaces Personal is ALWAYS BYOL (customer-licensed,
@@ -80,12 +82,33 @@ _BYOL_OS_MARKERS = (
 )
 
 
-def personal_license_model(operating_system: str | None) -> str:
-    """Price List 'license' attribute value for a Personal OS name."""
+def _personal_os_license(operating_system: str | None) -> tuple[tuple[str, ...], str] | None:
+    """(acceptable Price List operatingSystem values, license value) for a requested OS.
+
+    Grounded in the actual Price List vocabulary: Windows Server bundles are os=Windows /
+    license=Included; Windows 10/11 is BYOL (those SKUs carry os Windows OR Any); Amazon Linux
+    and Ubuntu carry license=None (not Included); RHEL and Rocky are Included.
+    """
     o = (operating_system or "").upper()
     if any(m in o for m in _BYOL_OS_MARKERS):
-        return "Bring Your Own License"
-    return "Included"
+        return ("Windows", "Any"), "Bring Your Own License"
+    if "AMAZON" in o:
+        return ("Amazon Linux",), "None"
+    if "UBUNTU" in o:
+        return ("Ubuntu Linux",), "None"
+    if "RHEL" in o or "RED HAT" in o or "RED_HAT" in o:
+        return ("Red Hat Enterprise Linux",), "Included"
+    if "ROCKY" in o:
+        return ("Rocky Linux",), "Included"
+    if "WIN" in o or not o:
+        return ("Windows",), "Included"
+    return None
+
+
+def personal_license_model(operating_system: str | None) -> str:
+    """Price List 'license' attribute value for a Personal OS name."""
+    resolved = _personal_os_license(operating_system)
+    return resolved[1] if resolved else "Included"
 
 
 def _storage_str(root_gib: int | None, user_gib: int | None) -> str | None:
@@ -104,62 +127,97 @@ def get_workspace_prices(
 ) -> WorkspacePrices | None:
     """Resolve AlwaysOn monthly + AutoStop base/hourly prices for a desktop (None if unmatched).
 
-    License-aware: Windows 10/11 resolves against BYOL SKUs (which carry operatingSystem
-    "Windows" OR "Any", so the OS filter is dropped there); everything else uses Included.
+    Fetches the whole bundle FAMILY (storage variants are separate suffixed bundles) and
+    selects client-side on storage + OS + license — grounded in the real SKU vocabulary.
     """
     location = _REGION_LOCATIONS.get(region or "")
-    os_value = _os_filter(operating_system)
-    license_model = personal_license_model(operating_system)
+    resolved = _personal_os_license(operating_system)
     bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
     storage = _storage_str(root_gib, user_gib)
-    if not (location and bundle and storage):
+    if not (location and resolved and bundle and storage):
         return None
-    if license_model == "Included" and not os_value:
-        return None
+    os_values, license_value = resolved
 
-    key = (location, license_model, os_value, bundle, storage)
+    key = (location, os_values, license_value, bundle, storage)
     if key in _cache:
         return _cache[key]
 
-    base_filters = [
-        {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-        {"Type": "TERM_MATCH", "Field": "license", "Value": license_model},
-        {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
-    ]
-    if license_model == "Included" and os_value:
-        base_filters.append({"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value})
-    alwayson = autostop_base = hourly = None
-    try:
-        pricing = factory.client("pricing", region=_PRICING_REGION)
-        for running_mode in ("AlwaysOn", "AutoStop"):
-            filters = base_filters + [
-                {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode}
-            ]
-            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
-                product = json.loads(raw)
-                attrs = product["product"]["attributes"]
-                if attrs.get("storage") != storage:
-                    continue
-                for term in product.get("terms", {}).get("OnDemand", {}).values():
-                    for pd in term["priceDimensions"].values():
-                        unit = (pd.get("unit") or "").lower()
-                        usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
-                        if usd <= 0:
-                            continue
-                        if running_mode == "AlwaysOn" and unit == "month":
-                            alwayson = usd
-                        elif running_mode == "AutoStop" and unit == "hour":
-                            hourly = usd
-                        elif running_mode == "AutoStop" and unit == "month":
-                            autostop_base = usd
-    except Exception as exc:  # pricing is best-effort; never fail the recommendation
-        logger.warning("Pricing lookup failed for {}: {}", key, exc)
-        _cache[key] = None
-        return None
+    # The AutoStop HOURLY rate is compute-level (published once per bundle+OS+license, on the
+    # base bundle's rows); only the monthly fees vary by storage. Prefer a storage-exact hourly
+    # if one ever appears, else use the family's.
+    alwayson = autostop_base = hourly_exact = hourly_family = None
+    for row in _personal_family_rows(factory, location, bundle):
+        if row["operating_system"] not in os_values or row["license"] != license_value:
+            continue
+        if row["running_mode"] == "AutoStop" and row["unit"] == "hour":
+            if row["storage"] == storage:
+                hourly_exact = row["usd"]
+            else:
+                hourly_family = row["usd"]
+            continue
+        if row["storage"] != storage:
+            continue
+        if row["running_mode"] == "AlwaysOn" and row["unit"] == "month":
+            alwayson = row["usd"]
+        elif row["running_mode"] == "AutoStop" and row["unit"] == "month":
+            autostop_base = row["usd"]
 
+    hourly = hourly_exact
+    if hourly is None and (alwayson is not None or autostop_base is not None):
+        # Inherit the compute-level hourly only when the pairing actually exists — a fully
+        # unmatched storage must stay all-None, not masquerade as a partial match.
+        hourly = hourly_family
     prices = WorkspacePrices(alwayson, autostop_base, hourly)
     _cache[key] = prices
     return prices
+
+
+def _personal_family_rows(factory: ClientFactory, location: str, bundle: str) -> list[dict]:
+    """Every priced dimension for a bundle family (base bundle + its storage-variant bundles).
+
+    Filtered to the Personal product family — the SAME bundle names exist under "WorkSpaces
+    Core" with different prices, so productFamily is load-bearing.
+    """
+    key = ("personal-family", location, bundle)
+    if key in _generic_cache:
+        return list(_generic_cache[key])  # type: ignore[arg-type]
+    rows: list[dict] = []
+    try:
+        pricing = factory.client("pricing", region=_PRICING_REGION)
+        for suffix in _BUNDLE_VARIANT_SUFFIXES:
+            filters = [
+                {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+                {
+                    "Type": "TERM_MATCH",
+                    "Field": "productFamily",
+                    "Value": _PERSONAL_PRODUCT_FAMILY,
+                },
+                {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle + suffix},
+            ]
+            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
+                product = json.loads(raw)
+                a = product["product"]["attributes"]
+                for term in product.get("terms", {}).get("OnDemand", {}).values():
+                    for pd in term["priceDimensions"].values():
+                        usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                        if usd <= 0:
+                            continue
+                        rows.append(
+                            {
+                                "bundle": a.get("bundle"),
+                                "operating_system": a.get("operatingSystem"),
+                                "license": a.get("license"),
+                                "running_mode": a.get("runningMode"),
+                                "storage": a.get("storage"),
+                                "unit": (pd.get("unit") or "").lower(),
+                                "usd": usd,
+                            }
+                        )
+    except Exception as exc:  # pricing is best-effort; never fail the caller
+        logger.warning("Bundle family fetch failed for {} {}: {}", location, bundle, exc)
+        return []
+    _generic_cache[key] = rows
+    return rows
 
 
 def list_workspace_bundle_skus(
@@ -168,59 +226,95 @@ def list_workspace_bundle_skus(
     operating_system: str | None,
     compute_type: str | None,
 ) -> list[dict]:
-    """Every storage pairing AWS prices for a region/OS/compute (near-miss fallback listing).
+    """Every storage pairing AWS prices for a region/OS/compute (near-miss fallback listing)."""
+    location = _REGION_LOCATIONS.get(region or "")
+    resolved = _personal_os_license(operating_system)
+    bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
+    if not (location and resolved and bundle):
+        return []
+    os_values, license_value = resolved
+    by_storage: dict[str, dict] = {}
+    family_hourly: float | None = None
+    for row in _personal_family_rows(factory, location, bundle):
+        storage = row["storage"]
+        if (
+            not storage
+            or row["operating_system"] not in os_values
+            or row["license"] != license_value
+        ):
+            continue
+        if row["running_mode"] == "AlwaysOn" and row["unit"] == "month":
+            by_storage.setdefault(storage, {"storage": storage})["alwayson_monthly_usd"] = row[
+                "usd"
+            ]
+        elif row["running_mode"] == "AutoStop" and row["unit"] == "hour":
+            by_storage.setdefault(storage, {"storage": storage})["autostop_hourly_usd"] = row["usd"]
+            family_hourly = row["usd"]
+        elif row["running_mode"] == "AutoStop" and row["unit"] == "month":
+            by_storage.setdefault(storage, {"storage": storage})["autostop_monthly_base_usd"] = row[
+                "usd"
+            ]
+    # The hourly rate is compute-level; fill it in for pairings that only carry monthly fees.
+    if family_hourly is not None:
+        for entry in by_storage.values():
+            entry.setdefault("autostop_hourly_usd", family_hourly)
+    return sorted(by_storage.values(), key=lambda e: e["storage"])
 
-    License-aware like get_workspace_prices: Windows 10/11 lists BYOL SKUs.
+
+def workspaces_pool_rates(
+    factory: ClientFactory, region: str | None, compute_type: str | None
+) -> dict:
+    """WorkSpaces Pools rates for a compute type: streaming $/hr by license + shared fees.
+
+    Pool SKUs live under runningMode=Pool per bundle (Included vs BYOL rates); the stopped-
+    instance fee and the monthly per-user fee are their own bundles ("Stopped Instance",
+    "User Fee") under runningMode "Not Applicable Pools".
     """
     location = _REGION_LOCATIONS.get(region or "")
-    os_value = _os_filter(operating_system)
-    license_model = personal_license_model(operating_system)
     bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
     if not (location and bundle):
-        return []
-    if license_model == "Included" and not os_value:
-        return []
-    key = ("personal-skus", location, license_model, os_value, bundle)
+        return {}
+    key = ("pools", location, bundle)
     if key in _generic_cache:
-        return list(_generic_cache[key])  # type: ignore[arg-type]
-    by_storage: dict[str, dict] = {}
+        return dict(_generic_cache[key])  # type: ignore[arg-type]
+    out: dict[str, float] = {}
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
-        for running_mode in ("AlwaysOn", "AutoStop"):
-            filters = [
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {"Type": "TERM_MATCH", "Field": "runningMode", "Value": "Pool"},
+            {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
+        ]
+        for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
+            product = json.loads(raw)
+            a = product["product"]["attributes"]
+            for term in product.get("terms", {}).get("OnDemand", {}).values():
+                for pd in term["priceDimensions"].values():
+                    usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                    if usd <= 0 or not (pd.get("unit") or "").lower().startswith("hour"):
+                        continue
+                    if a.get("license") == "Bring Your Own License":
+                        out["streaming_hourly_byol_usd"] = usd
+                    elif a.get("license") == "Included":
+                        out["streaming_hourly_included_usd"] = usd
+        for fee_bundle, field, unit_prefix in (
+            ("Stopped Instance", "stopped_instance_hourly_usd", "hour"),
+            ("User Fee", "user_fee_monthly_usd", "month"),
+        ):
+            fee_filters = [
                 {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                {"Type": "TERM_MATCH", "Field": "license", "Value": license_model},
-                {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
-                {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode},
+                {"Type": "TERM_MATCH", "Field": "bundle", "Value": fee_bundle},
             ]
-            if license_model == "Included" and os_value:
-                filters.append(
-                    {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value}
-                )
-            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
+            for raw in _iter_price_list(pricing, "AmazonWorkSpaces", fee_filters):
                 product = json.loads(raw)
-                storage = product["product"]["attributes"].get("storage")
-                if not storage:
-                    continue
-                entry = by_storage.setdefault(storage, {"storage": storage})
                 for term in product.get("terms", {}).get("OnDemand", {}).values():
                     for pd in term["priceDimensions"].values():
-                        unit = (pd.get("unit") or "").lower()
                         usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
-                        if usd <= 0:
-                            continue
-                        if running_mode == "AlwaysOn" and unit == "month":
-                            entry["alwayson_monthly_usd"] = usd
-                        elif running_mode == "AutoStop" and unit == "hour":
-                            entry["autostop_hourly_usd"] = usd
-                        elif running_mode == "AutoStop" and unit == "month":
-                            entry["autostop_monthly_base_usd"] = usd
-    except Exception as exc:  # best-effort; never fail the caller
-        logger.warning(
-            "Bundle SKU listing failed for {} {} {}: {}", location, os_value, bundle, exc
-        )
-        return []
-    out = sorted(by_storage.values(), key=lambda e: e["storage"])
+                        if usd > 0 and (pd.get("unit") or "").lower().startswith(unit_prefix):
+                            out[field] = usd
+    except Exception as exc:
+        logger.warning("Pools pricing lookup failed for {} {}: {}", location, bundle, exc)
+        return {}
     _generic_cache[key] = out
     return out
 
@@ -264,15 +358,10 @@ def estimate_alwayson_to_autostop_savings(
 
 # --------------------------------------------------------------------- portfolio-wide pricing
 
-# AppStream Platform enum -> Price List operatingSystem attribute. Windows 10/11 on WorkSpaces
-# Applications are BYOL (customer-licensed) and bill at the cheaper BYOL SKU.
-_APPSTREAM_OS = {
-    "AMAZON_LINUX2": "Amazon Linux",
-    "RHEL8": "Red Hat Enterprise Linux",
-    "ROCKY_LINUX8": "Rocky Linux",
-    "WINDOWS_10": "Windows BYOL",
-    "WINDOWS_11": "Windows BYOL",
-}
+# Price List operatingSystem values for AmazonAppStream (discovered): Windows, Windows BYOL,
+# Amazon Linux, Red Hat Enterprise Linux, Rocky Linux, Ubuntu Pro. Windows 10/11 platforms are
+# BYOL (customer-licensed) and bill at the cheaper BYOL SKU; matching is substring-based so new
+# platform enum revisions (AMAZON_LINUX2023, RHEL9, ...) resolve instead of defaulting wrong.
 
 # Secure Browser usagetype suffix -> portal instanceType.
 _WEB_TIER_BY_SUFFIX = {
@@ -318,7 +407,59 @@ def classify_price_completeness(prices: WorkspacePrices | None) -> str:
 def _appstream_os_for_platform(platform: str | None) -> str:
     if not platform:
         return "Windows"
-    return _APPSTREAM_OS.get(platform.upper(), "Windows")
+    p = platform.upper()
+    if any(m in p for m in _BYOL_OS_MARKERS):
+        return "Windows BYOL"
+    if "UBUNTU" in p:
+        return "Ubuntu Pro"
+    if "AMAZON" in p:
+        return "Amazon Linux"
+    if "RHEL" in p or "RED_HAT" in p or "RED HAT" in p:
+        return "Red Hat Enterprise Linux"
+    if "ROCKY" in p:
+        return "Rocky Linux"
+    return "Windows"
+
+
+def appstream_user_fees(factory: ClientFactory, region: str | None) -> dict[str, float]:
+    """Microsoft user fees (RDS SAL/CAL) for Included-license Windows Applications fleets.
+
+    Billed per unique user per month on top of instance hours: one rate for single-session
+    fleets, first+additional rates for multi-session. BYOL Windows 10/11 fleets do not incur
+    these.
+    """
+    location = _REGION_LOCATIONS.get(region or "")
+    if not location:
+        return {}
+    key = ("appstream-user-fees", location)
+    if key in _generic_cache:
+        return dict(_generic_cache[key])  # type: ignore[arg-type]
+    out: dict[str, float] = {}
+    try:
+        pricing = factory.client("pricing", region=_PRICING_REGION)
+        filters = [
+            {"Type": "TERM_MATCH", "Field": "location", "Value": location},
+            {"Type": "TERM_MATCH", "Field": "productFamily", "Value": "User Fees"},
+        ]
+        for raw in _iter_price_list(pricing, "AmazonAppStream", filters):
+            product = json.loads(raw)
+            usage_type = product["product"]["attributes"].get("usagetype", "")
+            for term in product.get("terms", {}).get("OnDemand", {}).values():
+                for pd in term["priceDimensions"].values():
+                    usd = float(pd.get("pricePerUnit", {}).get("USD", 0) or 0)
+                    if usd <= 0:
+                        continue
+                    if "Multi-Session-Additional" in usage_type:
+                        out["multi_session_additional_user_monthly_usd"] = usd
+                    elif "Multi-Session" in usage_type:
+                        out["multi_session_user_monthly_usd"] = usd
+                    else:
+                        out["single_session_user_monthly_usd"] = usd
+    except Exception as exc:
+        logger.warning("AppStream user-fee lookup failed for {}: {}", location, exc)
+        return {}
+    _generic_cache[key] = out
+    return out
 
 
 def appstream_hourly_price(
@@ -553,7 +694,7 @@ def register(mcp, factory: ClientFactory) -> None:
     """Register the portfolio pricing tool on the FastMCP app."""
 
     async def get_euc_service_prices(
-        service: Literal["applications", "secure-browser", "core", "personal"],
+        service: Literal["applications", "secure-browser", "core", "personal", "pools"],
         region: str | None = None,
         regions: list[str] | None = None,
         fleet_name: str | None = None,
@@ -580,6 +721,8 @@ def register(mcp, factory: ClientFactory) -> None:
           (730 h) and on_demand_stopped_hourly_usd. The 24x7 figures apply to ALWAYS_ON fleets
           and RUNNING builders only; ON_DEMAND fleets bill the full rate only while streaming
           plus the stopped-instance fee while provisioned idle.
+        - pools: WorkSpaces Pools rates for a compute_type — streaming $/hr (Included vs BYOL
+          image licensing), the pool stopped-instance $/hr, and the $/user/month user fee.
         - secure-browser: $/monthly-active-user per portal tier (standard.regular/large/xlarge).
         - core: managed-instance fee SKUs for an instance type — one SKU per billing option
           (hourly vs monthly). The account bills whichever billing option it is configured for;
@@ -688,6 +831,16 @@ def register(mcp, factory: ClientFactory) -> None:
                     "The On-Demand stopped-instance fee is one flat SKU per region — it does "
                     "NOT vary by instance type."
                 )
+                if _appstream_os_for_platform(iplat) == "Windows":
+                    fees = appstream_user_fees(factory, target_region)
+                    if fees:
+                        base["microsoft_user_fees_monthly_usd"] = fees
+                        base["notes"].append(
+                            "Included-license Windows fleets ALSO bill a Microsoft user fee "
+                            "(RDS SAL) per unique user per month on top of instance hours — "
+                            "single_session vs multi_session (first user) + additional-user "
+                            "rates above. BYOL Windows 10/11 fleets do not incur these."
+                        )
                 if hourly is None:
                     base["notes"].append(
                         "No matching SKU — check instance_type/instance_function/platform."
@@ -700,6 +853,17 @@ def register(mcp, factory: ClientFactory) -> None:
                             "prices for this instance type + function in this region — pick "
                             "the matching one instead of guessing."
                         )
+            elif service == "pools":
+                if not compute_type:
+                    base["notes"].append("compute_type is required for pools pricing.")
+                else:
+                    base["rates"] = workspaces_pool_rates(factory, target_region, compute_type)
+                    base["notes"].append(
+                        "WorkSpaces Pools bill the streaming rate per instance-hour while "
+                        "serving sessions, the stopped-instance rate for provisioned idle "
+                        "instances, PLUS the monthly user fee per unique user. Included vs "
+                        "BYOL streaming rates differ with the image's license model."
+                    )
             elif service == "secure-browser":
                 base["monthly_active_user_usd_by_tier"] = secure_browser_mau_prices(
                     factory, target_region
