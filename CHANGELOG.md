@@ -5,6 +5,26 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-07-03
+
+Polish from the v0.1.18 validation round. No new tools; 30 unchanged.
+
+### Added
+- `get_euc_service_prices` accepts **`fleet_name`** (applications): resolves instance type, fleet
+  type, desired capacity, and — the important part — the **platform from the fleet's image**,
+  because DescribeFleets omits Platform for non-Elastic fleets. Fixes Windows 10/11 BYOL fleets
+  being priced at the included-license Windows Server rate (observed: \$0.24/hr quoted for a
+  \$0.217/hr BYOL fleet). Adds `idle_monthly_usd` (ON_DEMAND: stopped fee x 730 h x desired) or
+  `provisioned_monthly_usd` (ALWAYS_ON) estimates. Uses existing Tier 0 appstream Describe
+  permissions.
+
+### Changed
+- Applications pricing notes now state the On-Demand stopped-instance fee is **one flat SKU per
+  region** (it does not vary by instance type) — stops assistants hedging.
+- CloudTrail `LookupEvents` pacing is now a **module-level 2 TPS pacer shared across tool
+  calls** — back-to-back per-service audits (the assistant's natural pattern for "who changed
+  what everywhere") no longer throttle each other's first pages.
+
 ## [0.1.18] - 2026-07-03
 
 Two confident-wrong-answer bugs found in live validation, both fixed. No new tools; 30 unchanged.
