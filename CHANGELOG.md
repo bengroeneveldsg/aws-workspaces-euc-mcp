@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-07-03
+
+### Fixed
+- **Spreadsheet-ready inventory attributes** — validated against a real export, several fields came
+  out blank because values were nested or missing; all are now flat, populated columns:
+  - Pools: `CapacityStatus` flattened to `desired/actual/active/available_user_sessions`, plus the
+    pool's **bundle name / compute type / OS** resolved via `DescribeWorkspaceBundles`.
+  - Applications fleets: `ComputeCapacityStatus` flattened to
+    `desired/running/in_use/available_capacity`, plus `platform` (Elastic fleets), `stream_view`,
+    and `image_arn`.
+  - Stacks: `embed_host_domains`, `redirect_url`, `feedback_url` added.
+  - Personal: `root/user_volume_encrypted` are now explicit booleans — AWS omits the flag when a
+    volume is NOT encrypted, which previously exported as blank/"unknown" instead of False.
+
 ## [0.1.14] - 2026-07-03
 
 ### Added

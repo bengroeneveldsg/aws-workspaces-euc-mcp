@@ -165,8 +165,10 @@ def generate_inventory_report_core(
                         "auto_stop_timeout_minutes": w.get("WorkspaceProperties", {}).get(
                             "RunningModeAutoStopTimeoutInMinutes"
                         ),
-                        "root_volume_encrypted": w.get("RootVolumeEncryptionEnabled"),
-                        "user_volume_encrypted": w.get("UserVolumeEncryptionEnabled"),
+                        # AWS omits these flags when a volume is NOT encrypted, so absence
+                        # means False — emit an explicit boolean, not null/"unknown".
+                        "root_volume_encrypted": bool(w.get("RootVolumeEncryptionEnabled")),
+                        "user_volume_encrypted": bool(w.get("UserVolumeEncryptionEnabled")),
                         "subnet_id": w.get("SubnetId"),
                         "tags": _ws_tags(w.get("WorkspaceId", ""), errors),
                     },
@@ -185,27 +187,56 @@ def generate_inventory_report_core(
             lambda: paginate(workspaces.describe_workspaces_pools, "WorkspacesPools"),
             default=[],
         )
+        # Resolve pool bundles for name/compute/OS (pools do not carry them directly).
+        pool_bundle_ids = sorted({p.get("BundleId") for p in (pools or []) if p.get("BundleId")})
+        pool_bundles: dict[str, dict] = {}
+        for i in range(0, len(pool_bundle_ids), 25):
+            chunk = pool_bundle_ids[i : i + 25]
+            result = try_call(
+                errors,
+                consts.PRODUCT_WORKSPACES_POOLS,
+                "DescribeWorkspaceBundles",
+                lambda chunk=chunk: workspaces.describe_workspace_bundles(BundleIds=chunk).get(
+                    "Bundles", []
+                ),
+                default=[],
+            )
+            for b in result or []:
+                pool_bundles[b.get("BundleId", "")] = b
+
+        def _pool_record(p: dict) -> ResourceRecord:
+            capacity = p.get("CapacityStatus") or {}
+            bundle = pool_bundles.get(p.get("BundleId", ""), {})
+            return ResourceRecord(
+                id=p.get("PoolId", p.get("PoolName", "")),
+                name=p.get("PoolName"),
+                state=p.get("State"),
+                attributes={
+                    # CapacityStatus flattened so spreadsheet exports get real columns.
+                    "desired_user_sessions": capacity.get("DesiredUserSessions"),
+                    "actual_user_sessions": capacity.get("ActualUserSessions"),
+                    "active_user_sessions": capacity.get("ActiveUserSessions"),
+                    "available_user_sessions": capacity.get("AvailableUserSessions"),
+                    "bundle_id": p.get("BundleId"),
+                    "bundle_name": bundle.get("Name"),
+                    "compute_type": (bundle.get("ComputeType") or {}).get("Name"),
+                    "operating_system": (bundle.get("BundleDetails") or {}).get(
+                        "OperatingSystemName"
+                    )
+                    or bundle.get("Description"),
+                    "directory_id": p.get("DirectoryId"),
+                    "running_mode": p.get("RunningMode"),
+                    "description": p.get("Description"),
+                    "created_at": str(p.get("CreatedAt")) if p.get("CreatedAt") else None,
+                    "errors": p.get("Errors"),
+                    "tags": _ws_tags(p.get("PoolId", ""), errors),
+                },
+            )
+
         section = InventoryReportSection(
             service=consts.PRODUCT_WORKSPACES_POOLS,
             resource_type="WorkSpacesPool",
-            resources=[
-                ResourceRecord(
-                    id=p.get("PoolId", p.get("PoolName", "")),
-                    name=p.get("PoolName"),
-                    state=p.get("State"),
-                    attributes={
-                        "capacity": p.get("CapacityStatus"),
-                        "bundle_id": p.get("BundleId"),
-                        "directory_id": p.get("DirectoryId"),
-                        "running_mode": p.get("RunningMode"),
-                        "description": p.get("Description"),
-                        "created_at": str(p.get("CreatedAt")) if p.get("CreatedAt") else None,
-                        "errors": p.get("Errors"),
-                        "tags": _ws_tags(p.get("PoolId", ""), errors),
-                    },
-                )
-                for p in (pools or [])
-            ],
+            resources=[_pool_record(p) for p in (pools or [])],
         )
         return section, errors
 
@@ -229,8 +260,17 @@ def generate_inventory_report_core(
                     attributes={
                         "instance_type": f.get("InstanceType"),
                         "fleet_type": f.get("FleetType"),
-                        "capacity": f.get("ComputeCapacityStatus"),
+                        "platform": f.get("Platform"),
+                        "stream_view": f.get("StreamView"),
+                        # ComputeCapacityStatus flattened for spreadsheet-friendly columns.
+                        "desired_capacity": (f.get("ComputeCapacityStatus") or {}).get("Desired"),
+                        "running_capacity": (f.get("ComputeCapacityStatus") or {}).get("Running"),
+                        "in_use_capacity": (f.get("ComputeCapacityStatus") or {}).get("InUse"),
+                        "available_capacity": (f.get("ComputeCapacityStatus") or {}).get(
+                            "Available"
+                        ),
                         "image_name": f.get("ImageName"),
+                        "image_arn": f.get("ImageArn"),
                         "max_user_duration_seconds": f.get("MaxUserDurationInSeconds"),
                         "idle_disconnect_timeout_seconds": f.get("IdleDisconnectTimeoutInSeconds"),
                         "disconnect_timeout_seconds": f.get("DisconnectTimeoutInSeconds"),
@@ -271,6 +311,9 @@ def generate_inventory_report_core(
                     name=s.get("DisplayName"),
                     attributes={
                         "description": s.get("Description"),
+                        "embed_host_domains": s.get("EmbedHostDomains"),
+                        "redirect_url": s.get("RedirectURL"),
+                        "feedback_url": s.get("FeedbackURL"),
                         "associated_fleets": associated or [],
                         "user_settings": s.get("UserSettings"),
                         "storage_connectors": s.get("StorageConnectors"),

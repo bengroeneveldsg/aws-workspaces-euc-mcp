@@ -143,7 +143,8 @@ def test_generate_inventory_report_sections():
     assert personal.attributes["root_volume_gib"] == 80
     # Pool capacity now reads CapacityStatus (previously the wrong key -> null).
     pool = by_service[consts.PRODUCT_WORKSPACES_POOLS].resources[0]
-    assert pool.attributes["capacity"] == {"DesiredUserSessions": 10, "ActiveUserSessions": 2}
+    assert pool.attributes["desired_user_sessions"] == 10
+    assert pool.attributes["active_user_sessions"] == 2
     assert pool.attributes["bundle_id"] == "wsb-pool"
     assert by_service[consts.PRODUCT_SECURE_BROWSER].resources[0].id == "arn:portal/1"
     # The Applications stack section lists its associated fleets.
