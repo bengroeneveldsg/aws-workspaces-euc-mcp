@@ -66,6 +66,28 @@ def _os_filter(operating_system: str | None) -> str | None:
     return None
 
 
+# Client-OS markers: Windows 10/11 on WorkSpaces Personal is ALWAYS BYOL (customer-licensed,
+# dedicated tenancy) and bills on separate hardware-only SKUs — cheaper than the Windows Server
+# Included-license rates. Never present the two as identically priced.
+_BYOL_OS_MARKERS = (
+    "WINDOWS_10",
+    "WINDOWS_11",
+    "WINDOWS 10",
+    "WINDOWS 11",
+    "WIN10",
+    "WIN11",
+    "BYOL",
+)
+
+
+def personal_license_model(operating_system: str | None) -> str:
+    """Price List 'license' attribute value for a Personal OS name."""
+    o = (operating_system or "").upper()
+    if any(m in o for m in _BYOL_OS_MARKERS):
+        return "Bring Your Own License"
+    return "Included"
+
+
 def _storage_str(root_gib: int | None, user_gib: int | None) -> str | None:
     if root_gib is None or user_gib is None:
         return None
@@ -80,24 +102,32 @@ def get_workspace_prices(
     root_gib: int | None,
     user_gib: int | None,
 ) -> WorkspacePrices | None:
-    """Resolve AlwaysOn monthly + AutoStop base/hourly prices for a desktop (None if unmatched)."""
+    """Resolve AlwaysOn monthly + AutoStop base/hourly prices for a desktop (None if unmatched).
+
+    License-aware: Windows 10/11 resolves against BYOL SKUs (which carry operatingSystem
+    "Windows" OR "Any", so the OS filter is dropped there); everything else uses Included.
+    """
     location = _REGION_LOCATIONS.get(region or "")
     os_value = _os_filter(operating_system)
+    license_model = personal_license_model(operating_system)
     bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
     storage = _storage_str(root_gib, user_gib)
-    if not (location and os_value and bundle and storage):
+    if not (location and bundle and storage):
+        return None
+    if license_model == "Included" and not os_value:
         return None
 
-    key = (location, os_value, bundle, storage)
+    key = (location, license_model, os_value, bundle, storage)
     if key in _cache:
         return _cache[key]
 
     base_filters = [
         {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-        {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
-        {"Type": "TERM_MATCH", "Field": "license", "Value": "Included"},
+        {"Type": "TERM_MATCH", "Field": "license", "Value": license_model},
         {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
     ]
+    if license_model == "Included" and os_value:
+        base_filters.append({"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value})
     alwayson = autostop_base = hourly = None
     try:
         pricing = factory.client("pricing", region=_PRICING_REGION)
@@ -138,13 +168,19 @@ def list_workspace_bundle_skus(
     operating_system: str | None,
     compute_type: str | None,
 ) -> list[dict]:
-    """Every storage pairing AWS prices for a region/OS/compute (near-miss fallback listing)."""
+    """Every storage pairing AWS prices for a region/OS/compute (near-miss fallback listing).
+
+    License-aware like get_workspace_prices: Windows 10/11 lists BYOL SKUs.
+    """
     location = _REGION_LOCATIONS.get(region or "")
     os_value = _os_filter(operating_system)
+    license_model = personal_license_model(operating_system)
     bundle = _COMPUTE_BUNDLE.get((compute_type or "").upper())
-    if not (location and os_value and bundle):
+    if not (location and bundle):
         return []
-    key = ("personal-skus", location, os_value, bundle)
+    if license_model == "Included" and not os_value:
+        return []
+    key = ("personal-skus", location, license_model, os_value, bundle)
     if key in _generic_cache:
         return list(_generic_cache[key])  # type: ignore[arg-type]
     by_storage: dict[str, dict] = {}
@@ -153,11 +189,14 @@ def list_workspace_bundle_skus(
         for running_mode in ("AlwaysOn", "AutoStop"):
             filters = [
                 {"Type": "TERM_MATCH", "Field": "location", "Value": location},
-                {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value},
-                {"Type": "TERM_MATCH", "Field": "license", "Value": "Included"},
+                {"Type": "TERM_MATCH", "Field": "license", "Value": license_model},
                 {"Type": "TERM_MATCH", "Field": "bundle", "Value": bundle},
                 {"Type": "TERM_MATCH", "Field": "runningMode", "Value": running_mode},
             ]
+            if license_model == "Included" and os_value:
+                filters.append(
+                    {"Type": "TERM_MATCH", "Field": "operatingSystem", "Value": os_value}
+                )
             for raw in _iter_price_list(pricing, "AmazonWorkSpaces", filters):
                 product = json.loads(raw)
                 storage = product["product"]["attributes"].get("storage")
@@ -546,7 +585,9 @@ def register(mcp, factory: ClientFactory) -> None:
           (hourly vs monthly). The account bills whichever billing option it is configured for;
           do NOT assume the monthly fee applies.
         - personal: AlwaysOn monthly + AutoStop base/hourly for a bundle — needs compute_type,
-          operating_system, root_volume_gib, user_volume_gib. Returns
+          operating_system, root_volume_gib, user_volume_gib. LICENSE-AWARE: Windows 10/11 =
+          BYOL hardware-only SKUs; Windows Server/Linux = Included — the rates DIFFER, so never
+          claim Win 11 and Win Server cost the same without querying both. Returns
           autostop_breakeven_hours_per_month: below it AUTO_STOP is cheaper, above it ALWAYS_ON —
           use it for running-mode recommendations and sizing questions ("N desktops used X
           hours/month"). ASK for bundle/OS/storage rather than assuming when the user hasn't
@@ -688,8 +729,10 @@ def register(mcp, factory: ClientFactory) -> None:
                     user_volume_gib,
                 )
                 breakeven = autostop_breakeven_hours(prices)
+                license_model = personal_license_model(operating_system)
                 base.update(
                     {
+                        "license_model": license_model,
                         "alwayson_monthly_usd": prices.alwayson_monthly if prices else None,
                         "autostop_monthly_base_usd": prices.autostop_monthly_base
                         if prices
@@ -698,6 +741,20 @@ def register(mcp, factory: ClientFactory) -> None:
                         "autostop_breakeven_hours_per_month": breakeven,
                     }
                 )
+                if license_model == "Bring Your Own License":
+                    base["notes"].append(
+                        "LICENSE MODEL: Windows 10/11 on WorkSpaces Personal is BYOL — these "
+                        "are hardware-only rates that DIFFER from included-license Windows "
+                        "Server rates (never present the two as identically priced). BYOL also "
+                        "requires bringing eligible Windows licenses and dedicated-tenancy "
+                        "enablement (check get_euc_account_posture)."
+                    )
+                else:
+                    base["notes"].append(
+                        "LICENSE MODEL: Included (Windows Server-based or Linux). If the user "
+                        "means Windows 10/11, that is BYOL with different rates — re-query "
+                        "with operating_system WINDOWS_11."
+                    )
                 if breakeven is not None:
                     base["notes"].append(
                         f"RUNNING-MODE TIPPING POINT: at ~{breakeven:.0f} connected hours/month "

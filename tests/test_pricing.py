@@ -98,6 +98,65 @@ def test_savings_none_when_no_prices():
     assert pricing.estimate_alwayson_to_autostop_savings(None, 0, 14) is None
 
 
+def test_personal_license_model_detection():
+    assert pricing.personal_license_model("WINDOWS_11") == "Bring Your Own License"
+    assert pricing.personal_license_model("WINDOWS_10") == "Bring Your Own License"
+    assert pricing.personal_license_model("BYOL_Windows1123H2") == "Bring Your Own License"
+    assert pricing.personal_license_model("WINDOWS_SERVER_2025") == "Included"
+    assert pricing.personal_license_model("RHEL_8") == "Included"
+    assert pricing.personal_license_model(None) == "Included"
+
+
+def test_get_workspace_prices_windows11_uses_byol_skus():
+    # Windows 11 Personal is BYOL: the query must filter license=BYOL and must NOT pin
+    # operatingSystem (BYOL SKUs carry os "Windows" OR "Any"). Live SIN Power 175/100:
+    # BYOL $120/mo vs Included $124/mo — the regression was reporting them as identical.
+    seen_filters: list[list[dict]] = []
+
+    def get_products(**kwargs):
+        seen_filters.append(kwargs["Filters"])
+        rm = next(f["Value"] for f in kwargs["Filters"] if f["Field"] == "runningMode")
+        if rm == "AlwaysOn":
+            return {
+                "PriceList": [
+                    _product("Power", "Root:175 GB,User:100 GB", "AlwaysOn", "Month", "120.0", "x")
+                ]
+            }
+        return {
+            "PriceList": [
+                _product("Power", "Root:175 GB,User:100 GB", "AutoStop", "Hour", "0.95", "x"),
+                _product("Power", "Root:175 GB,User:100 GB", "AutoStop", "Month", "26.0", "x"),
+            ]
+        }
+
+    factory = FakeFactory({"pricing": types.SimpleNamespace(get_products=get_products)})
+    p = pricing.get_workspace_prices(factory, "ap-southeast-1", "WINDOWS_11", "POWER", 175, 100)
+
+    assert p is not None
+    assert p.alwayson_monthly == 120.0  # BYOL rate, not the $124 Included rate
+    for filters in seen_filters:
+        by_field = {f["Field"]: f["Value"] for f in filters}
+        assert by_field["license"] == "Bring Your Own License"
+        assert "operatingSystem" not in by_field
+
+
+def test_get_workspace_prices_server_os_uses_included_skus():
+    seen_filters: list[list[dict]] = []
+
+    def get_products(**kwargs):
+        seen_filters.append(kwargs["Filters"])
+        return {"PriceList": []}
+
+    factory = FakeFactory({"pricing": types.SimpleNamespace(get_products=get_products)})
+    pricing.get_workspace_prices(
+        factory, "ap-southeast-1", "WINDOWS_SERVER_2025", "POWER", 175, 100
+    )
+    for filters in seen_filters:
+        by_field = {f["Field"]: f["Value"] for f in filters}
+        assert by_field["license"] == "Included"
+        assert by_field["operatingSystem"] == "Windows"
+
+
 def test_autostop_breakeven_hours():
     # Power SIN: AlwaysOn 124, AutoStop 26 + 0.99/h -> (124-26)/0.99 = 99.0 hrs/month.
     # A 100 hrs/month user sits right at the tipping point (the live-validation case).
